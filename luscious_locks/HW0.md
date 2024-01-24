@@ -222,15 +222,19 @@ char *ptr = "hello";
 It causes a segmentation fault as "hello" is read only memory and we are attempting to modify it
 
 7. What does `sizeof("Hello\0World")` return?
+
 12
 
 8. What does `strlen("Hello\0World")` return?
+
 5
 
 9. Give an example of X such that `sizeof(X)` is 3.
+
 "ab"
 
 10. Give an example of Y such that `sizeof(Y)` might be 4 or 8 depending on the machine.
+
 Y = long
 
 ## Chapter 3
@@ -447,28 +451,36 @@ int main() {
 These are general tips for compiling and developing using a compiler and git. Some web searches will be useful here
 
 1. What compiler flag is used to generate a debug build?
+
 -g
 
 2. You modify the Makefile to generate debug builds and type `make` again. Explain why this is insufficient to generate a new build.
+
 just modifying the Makefile may not trigger a rebuild if the source files haven't been changed. Make checks file timestamps to decide if recompilation is needed.
 
 3. Are tabs or spaces used to indent the commands after the rule in a Makefile?
+
 commands must be indented with a tab character
 
 4. What does `git commit` do? What's a `sha` in the context of git?
+
 git commit records changes to the repository. SHA is a unique identifier for each commit
 
 5. What does `git log` show you?
+
 dipslays commit history
 
 6. What does `git status` tell you and how would the contents of `.gitignore` change its output?
+
 git status shows the working tree status, .gitignore may exluude specified files from the untracked
 fiels list
 
 7. What does `git push` do? Why is it not just sufficient to commit with `git commit -m 'fixed all bugs' `?
+
 git push uploads local repository content to a remote repository, commit only saves changes locally
 
 8. What does a non-fast-forward error `git push` reject mean? What is the most common way of dealing with this?
+
 It means that the remote branch has progressed since the last pull. Commonlu resolved by first pulling then pushing again
 
 
