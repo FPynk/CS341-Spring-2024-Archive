@@ -178,9 +178,22 @@ Sizing up C types and their limits, `int` and `char` arrays, and incrementing po
 
 ### Not all bytes are 8 bits?
 1. How many bits are there in a byte?
+
+At least 8 bits and it is normally 8 bits. This may be more for different architectures
+
 2. How many bytes are there in a `char`?
+
+Always 1 Byte
+
 3. How many bytes the following are on your machine?
    - `int`, `double`, `float`, `long`, and `long long`
+
+int: 4 Bytes
+double: 8 Bytes
+float: 4 Bytes
+long: 4 Bytes
+long long: 8 Bytes
+
 ### Follow the int pointer
 4. On a machine with 8 byte integers:
 ```C
@@ -190,8 +203,12 @@ int main(){
 ```
 If the address of data is `0x7fbd9d40`, then what is the address of `data+2`?
 
+0x7fbd9d48
+
 5. What is `data[3]` equivalent to in C?
    - Hint: what does C convert `data[3]` to before dereferencing the address?
+
+it is equivalent to *(data+3) and 3[data]
 
 ### `sizeof` character arrays, incrementing pointers
   
@@ -202,10 +219,19 @@ Remember, the type of a string constant `"abc"` is an array.
 char *ptr = "hello";
 *ptr = 'J';
 ```
+It causes a segmentation fault as "hello" is read only memory and we are attempting to modify it
+
 7. What does `sizeof("Hello\0World")` return?
+12
+
 8. What does `strlen("Hello\0World")` return?
+5
+
 9. Give an example of X such that `sizeof(X)` is 3.
+"ab"
+
 10. Give an example of Y such that `sizeof(Y)` might be 4 or 8 depending on the machine.
+Y = long
 
 ## Chapter 3
 
