@@ -276,67 +276,117 @@ Heap and stack memory, and working with structs
 ### Memory allocation using `malloc`, the heap, and time
 1. If I want to use data after the lifetime of the function it was created in ends, where should I put it? How do I put it there?
 
-
+I should put it in the heap using malloc
 
 2. What are the differences between heap and stack memory?
 
-
+Stack is static memory allocation, meant for local variables and function call management, 
+automatically managed.
+Heap is used for dynamic memory allocation, variable are manually allocated and deallocated
+by the user
 
 3. Are there other kinds of memory in a process?
 
-
+There is also the: text segment, data segment, caches and registers
 
 4. Fill in the blank: "In a good C program, for every malloc, there is a ___".
 
-
+free
 
 ### Heap allocation gotchas
 5. What is one reason `malloc` can fail?
 
-
+Insufficient memory, if it lacks contiguous memory to allocate it will return NULL
 
 6. What are some differences between `time()` and `ctime()`?
 
-
+time returns a time_t variable while ctime returns a char* that is human readable
+time's prupose is to obtain current time for computation
+ctime is for obtaining a human readable version
 
 7. What is wrong with this code snippet?
-
-
-
 ```C
 free(ptr);
 free(ptr);
 ```
+
+it is attempting to double free the same memory
+
 8. What is wrong with this code snippet?
-
-
-
 ```C
 free(ptr);
 printf("%s\n", ptr);
 ```
+
+it is using freed memory which may be invalid or is reused for another purpose
+
 9. How can one avoid the previous two mistakes? 
 
-
+once you free a ptr, set it to NULL
 
 ### `struct`, `typedef`s, and a linked list
 10. Create a `struct` that represents a `Person`. Then make a `typedef`, so that `struct Person` can be replaced with a single word. A person should contain the following information: their name (a string), their age (an integer), and a list of their friends (stored as a pointer to an array of pointers to `Person`s).
 
+```C
+struct Person {
+    char* name;
+    int age;
+    struct Person** friends;
+};
 
+typedef struct Person Human;
+```
 
 11. Now, make two persons on the heap, "Agent Smith" and "Sonny Moore", who are 128 and 256 years old respectively and are friends with each other.
 
+```C
+int main() {
+    Human *agentSmith = malloc(sizeof(Human));
+    Human *soonyMoore = malloc(sizeof(Human));
 
+    agentSmith->name = "Agent Smith";
+    agentSmith->age = 128;
+    agentSmith->friends = &sonnyMoore;
+
+    sonnyMoore->name = "Sonny Moore";
+    sonnyMoore->age = 256;
+    sonnyMoore->friends = &agentSmith;
+
+    free(agentSmith);
+    free(sonnyMoore);
+
+    return 0;
+}
+```
 
 ### Duplicating strings, memory allocation and deallocation of structures
 Create functions to create and destroy a Person (Person's and their names should live on the heap).
 12. `create()` should take a name and age. The name should be copied onto the heap. Use malloc to reserve sufficient memory for everyone having up to ten friends. Be sure initialize all fields (why?).
 
-
+```C
+Human *create(char *name, int age) {
+    Human *p = malloc(sizeof(Human));
+    p->name = strdup(name);
+    p->age = age;
+    p->friends = malloc(sizeof(Human*) * 10);
+    int i;
+    for (i = 0; i < 10; i++) {
+        p->friends[i]= NULL;
+    }
+    return p;
+}
+```
+Initialising of all fields to prevent undefined variables
 
 13. `destroy()` should free up not only the memory of the person struct, but also free all of its attributes that are stored on the heap. Destroying one person should not destroy any others.
 
-
+```C
+void destroy(Human *p) {
+    free(p->name);
+    free(p->friends);
+    free(p);
+}
+```
 
 ## Chapter 5 
 
@@ -344,25 +394,83 @@ Text input and output and parsing using `getchar`, `gets`, and `getline`.
 
 ### Reading characters, trouble with gets
 1. What functions can be used for getting characters from `stdin` and writing them to `stdout`?
+
+getchar() & putchar() to get and write respectively
+
 2. Name one issue with `gets()`.
+
+gets() does not check bounds and may be vulnerable to buffer overflow attacks
+
 ### Introducing `sscanf` and friends
 3. Write code that parses the string "Hello 5 World" and initializes 3 variables to "Hello", 5, and "World".
+
+```C
+char str1[10], str2[10];
+int num;
+sscanf("Hello 5 World", "%s %d %s", str1, &num, str2);
+```
+
 ### `getline` is useful
 4. What does one need to define before including `getline()`?
+
+_GNU_SOURCE
+
 5. Write a C program to print out the content of a file line-by-line using `getline()`.
+
+```C
+#define _GNU_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+
+int main() {
+    FILE *fp = fopen("filename.txt", "r");
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    if (fp == NULL) {
+        perror("Error opening file");
+        return 0;
+    }
+
+    while((read = getline(&line, &len, fp)) != -1) {
+        printf("%s", line);
+    }
+    free(line);
+    fclose(fp);
+    return 0;
+}
+```
 
 ## C Development
 
 These are general tips for compiling and developing using a compiler and git. Some web searches will be useful here
 
 1. What compiler flag is used to generate a debug build?
+-g
+
 2. You modify the Makefile to generate debug builds and type `make` again. Explain why this is insufficient to generate a new build.
+just modifying the Makefile may not trigger a rebuild if the source files haven't been changed. Make checks file timestamps to decide if recompilation is needed.
+
 3. Are tabs or spaces used to indent the commands after the rule in a Makefile?
+commands must be indented with a tab character
+
 4. What does `git commit` do? What's a `sha` in the context of git?
+git commit records changes to the repository. SHA is a unique identifier for each commit
+
 5. What does `git log` show you?
+dipslays commit history
+
 6. What does `git status` tell you and how would the contents of `.gitignore` change its output?
+git status shows the working tree status, .gitignore may exluude specified files from the untracked
+fiels list
+
 7. What does `git push` do? Why is it not just sufficient to commit with `git commit -m 'fixed all bugs' `?
+git push uploads local repository content to a remote repository, commit only saves changes locally
+
 8. What does a non-fast-forward error `git push` reject mean? What is the most common way of dealing with this?
+It means that the remote branch has progressed since the last pull. Commonlu resolved by first pulling then pushing again
+
 
 ## Optional (Just for fun)
 - Convert your a song lyrics into System Programming and C code and share on Ed.
