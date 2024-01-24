@@ -239,9 +239,19 @@ Program arguments, environment variables, and working with character arrays (str
 
 ### Program arguments, `argc`, `argv`
 1. What are two ways to find the length of `argv`?
+
+Look at the value of argc or iterate through argv till you reach a null pointer
+
 2. What does `argv[0]` represent?
+
+The program name
+
 ### Environment Variables
 3. Where are the pointers to environment variables stored (on the stack, the heap, somewhere else)?
+
+It's stored somewhere else that's not the stack or the heap and is a region of memory that 
+is dedicated for environment variables. The location of this region depends on the OS.
+
 ### String searching (strings are just char arrays)
 4. On a machine where pointers are 8 bytes, and with the following code:
 ```C
@@ -250,9 +260,14 @@ char array[] = "Hello";
 ```
 What are the values of `sizeof(ptr)` and `sizeof(array)`? Why?
 
+sizeof(ptr) will return 8 bytes
+sizeof(array) will return 5 bytes
+
 ### Lifetime of automatic variables
 
 5. What data structure manages the lifetime of automatic variables?
+
+The stack data structure
 
 ## Chapter 4
 
@@ -260,30 +275,68 @@ Heap and stack memory, and working with structs
 
 ### Memory allocation using `malloc`, the heap, and time
 1. If I want to use data after the lifetime of the function it was created in ends, where should I put it? How do I put it there?
+
+
+
 2. What are the differences between heap and stack memory?
+
+
+
 3. Are there other kinds of memory in a process?
+
+
+
 4. Fill in the blank: "In a good C program, for every malloc, there is a ___".
+
+
+
 ### Heap allocation gotchas
 5. What is one reason `malloc` can fail?
+
+
+
 6. What are some differences between `time()` and `ctime()`?
+
+
+
 7. What is wrong with this code snippet?
+
+
+
 ```C
 free(ptr);
 free(ptr);
 ```
 8. What is wrong with this code snippet?
+
+
+
 ```C
 free(ptr);
 printf("%s\n", ptr);
 ```
 9. How can one avoid the previous two mistakes? 
+
+
+
 ### `struct`, `typedef`s, and a linked list
 10. Create a `struct` that represents a `Person`. Then make a `typedef`, so that `struct Person` can be replaced with a single word. A person should contain the following information: their name (a string), their age (an integer), and a list of their friends (stored as a pointer to an array of pointers to `Person`s).
+
+
+
 11. Now, make two persons on the heap, "Agent Smith" and "Sonny Moore", who are 128 and 256 years old respectively and are friends with each other.
+
+
+
 ### Duplicating strings, memory allocation and deallocation of structures
 Create functions to create and destroy a Person (Person's and their names should live on the heap).
 12. `create()` should take a name and age. The name should be copied onto the heap. Use malloc to reserve sufficient memory for everyone having up to ten friends. Be sure initialize all fields (why?).
+
+
+
 13. `destroy()` should free up not only the memory of the person struct, but also free all of its attributes that are stored on the heap. Destroying one person should not destroy any others.
+
+
 
 ## Chapter 5 
 
