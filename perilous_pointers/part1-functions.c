@@ -20,7 +20,16 @@
  *     The grade to check.
  */
 void one(const char *grade) {
-    if (grade > 70)
+    // Check for null
+    if (grade == NULL) {
+        printf("grade is null");
+    }
+
+    // check valid format
+    char* endptr = NULL;
+    float numeric_grade = strtof(grade, &endptr);
+
+    if (grade != endptr && *endptr == '\0' && numeric_grade > 70.0f)
         printf("%f passed!\n", numeric_grade);
     else
         printf("%s not passed!\n", grade);
@@ -32,7 +41,8 @@ void one(const char *grade) {
  */
 void two() {
     int x = 4;
-    int *p = x;
+    // here declaring int* p as in pointer to int, not dereferencing pointer p
+    int* p = &x;
     printf("The value of p is: %d\n", *p);
 }
 
@@ -48,7 +58,7 @@ void two() {
  *     Second input parameter.
  */
 void three(const int *x, const int *y) {
-    if (x == y)
+    if (*x == *y)
         printf("x and y are equal.\n");
     else
         printf("x and y are different.\n");
@@ -67,7 +77,12 @@ void three(const int *x, const int *y) {
  *     contains the value of the input parameter.
  */
 float *four(const int *x) {
-    float *p = *x;
+    float* p = (float*) malloc(sizeof(float));
+    if (p == NULL) {
+        fprintf(stderr, "Malloc p failed\n");
+        return NULL;
+    }
+    *p  = *x;
     printf("%d == %f\n", *x, *p);
     return p;
 }
