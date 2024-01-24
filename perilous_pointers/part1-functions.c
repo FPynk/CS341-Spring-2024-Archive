@@ -96,7 +96,7 @@ float *four(const int *x) {
  *
  */
 void five(const char *a) {
-    if (a >= 'A' && a <= 'z')
+    if (isalpha(*a))
         printf("a is a letter.\n");
     else
         printf("a is not a letter.\n");
@@ -107,21 +107,29 @@ void five(const char *a) {
  * valid c string, and prints the concatenated string.
  */
 void six(const char *str) {
-    char *s = "Hello ";
+    char *s = malloc(strlen("Hello ") + strlen(*str) + 1);
+
+    if (s == NULL) {
+        fprintf(stderr, "malloc fucked up");
+    }
+
+    strcpy(s, "Hello ");
     strcat(s, str);
     printf("%s\n", s);
+    free(s);
 }
 
 /**
  * Creates an array of values containing the values {0.0, 0.1, ..., 0.9}.
  */
 void seven() {
-    float *values;
+    float values[10];
 
     int i, n = 10;
 
-    for (i = 0; i < n; i++)
+    for (i = 0; i < n; i++) {
         values[i] = (float)i / n;
+    }
 
     for (i = 0; i < n; i++)
         printf("%f ", values[i]);
