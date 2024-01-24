@@ -88,13 +88,13 @@ In which our intrepid hero battles standard out, standard error, file descriptor
 
 ### Hello, World! (system call style)
 1. Write a program that uses `write()` to print out "Hi! My name is `<Your Name>`".
-
+```C
 #include <unistd.h>
 int main() {
 	write(1, "Hi! My name is Andrew", 22);
 	return 0;
 }
-
+```
 ### Hello, Standard Error Stream!
 2. Write a function to print out a triangle of height `n` to standard error.
    - Your function should have the signature `void write_triangle(int n)` and should use `write()`.
@@ -104,6 +104,7 @@ int main() {
    **
    ***
    ```
+```C
 #include <unistd.h>
 void write_triangle(int n) {
 	char line[n];
@@ -125,10 +126,11 @@ int main() {
 	write_triangle(3);
 	return 0;
 }
+```
 ### Writing to files
 3. Take your program from "Hello, World!" modify it write to a file called `hello_world.txt`.
    - Make sure to to use correct flags and a correct mode for `open()` (`man 2 open` is your friend).
-
+```C
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -140,11 +142,11 @@ int main() {
 	close(file);
 	return 0;
 }
-
+```
 ### Not everything is a system call
 4. Take your program from "Writing to files" and replace `write()` with `printf()`.
    - Make sure to print to the file instead of standard out!
-
+```C
 #define _GNU_SOURCE             /* See feature_test_macros(7) */
 #include <stdio.h>
 #include <unistd.h>
@@ -161,7 +163,7 @@ int main() {
 	dup2(original_stdout, STDOUT_FILENO);
 	return 0;
 }
-
+```
 5. What are some differences between `write()` and `printf()`?
 
 write() is a system call provided by the OS while printf is a standard C library function
