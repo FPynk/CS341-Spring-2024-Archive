@@ -104,13 +104,71 @@ int main() {
    **
    ***
    ```
+#include <unistd.h>
+void write_triangle(int n) {
+	char line[n];
+	int i;
+	for (i = 1; i <= n; i++) {
+		// fill the line with asterisks up to the current row number
+		int j;
+		for (j = 0; j < i; j++) {
+			line[j] = '*';
+		}
+		// add a newline character at the end of the row
+		line[i] = '\n';
+		
+		// write the line to standard error
+		write(STDERR_FILENO, line, i + 1);
+	}
+}
+int main() {
+	write_triangle(3);
+	return 0;
+}
 ### Writing to files
 3. Take your program from "Hello, World!" modify it write to a file called `hello_world.txt`.
    - Make sure to to use correct flags and a correct mode for `open()` (`man 2 open` is your friend).
+
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+int main() {
+	mode_t mode = S_IRUSR | S_IWUSR;
+	int file = open("hello_world.txt", O_CREAT | O_TRUNC| O_RDWR, mode);
+	write(file, "Hi! My name is Andrew", 22);
+	close(file);
+	return 0;
+}
+
 ### Not everything is a system call
 4. Take your program from "Writing to files" and replace `write()` with `printf()`.
    - Make sure to print to the file instead of standard out!
+
+#define _GNU_SOURCE             /* See feature_test_macros(7) */
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+int main() {
+	int original_stdout = dup(STDOUT_FILENO);
+	close(1);
+	mode_t mode = S_IRUSR | S_IWUSR;
+	int file = open("hello_world.txt", O_CREAT | O_TRUNC| O_RDWR, mode);
+	printf("Hi! My name is Andrew\n");
+	close(file);
+	dup2(original_stdout, STDOUT_FILENO);
+	return 0;
+}
+
 5. What are some differences between `write()` and `printf()`?
+
+write() is a system call provided by the OS while printf is a standard C library function
+
+write() is unbuffered while printf is buffered which is flushed only when full, encounters \n or when fflush is called
+
+printf can format string with placeholders while write just writes raw bytes to files
 
 ## Chapter 2
 
