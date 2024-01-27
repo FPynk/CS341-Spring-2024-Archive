@@ -25,3 +25,6 @@ char **camel_caser(const char *input_str);
  * @param result - The output from camel_caser() to be freed
  */
 void destroy(char **result);
+
+char **splitSentences(const char *input, int *numSentences);
+int countSentences(const char *input);
