@@ -28,3 +28,4 @@ void destroy(char **result);
 
 char **splitSentences(const char *input, int *numSentences);
 int countSentences(const char *input);
+void printCharArray(char **array);
