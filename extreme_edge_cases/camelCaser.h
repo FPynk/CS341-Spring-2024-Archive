@@ -26,12 +26,12 @@ char **camel_caser(const char *input_str);
  */
 void destroy(char **result);
 
-char **splitSentences(const char *input, int *numSentences);
-int countSentences(const char *input);
-char **splitWords(const char *sentence, int *numWords);
-int countWords(const char *sentence);
-void toCamelCase(char *word, int isFirstWord);
-void toLowerCase(char *str);
-void toUpperCaseFirst(char* str);
-void printCharArray(char **array);
-void printPointerAddresses(char **array);
+// char **splitSentences(const char *input, int *numSentences);
+// int countSentences(const char *input);
+// char **splitWords(const char *sentence, int *numWords);
+// int countWords(const char *sentence);
+// void toCamelCase(char *word, int isFirstWord);
+// void toLowerCase(char *str);
+// void toUpperCaseFirst(char* str);
+// void printCharArray(char **array);
+// void printPointerAddresses(char **array);

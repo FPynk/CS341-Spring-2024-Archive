@@ -5,7 +5,6 @@
 #include <stdio.h>
 
 #include "camelCaser_ref_utils.h"
-
 int main() {
     // int TC1 = 0;
     // int TC2 = 1;
