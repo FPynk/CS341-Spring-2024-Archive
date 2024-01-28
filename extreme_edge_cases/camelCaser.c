@@ -230,8 +230,8 @@ void printCharArray(char **array) {
         printf("%s\n", array[i]);
         i++;
     }
-
-    printf("Length: %d\n", i);
+    printf("NULL\n");
+    // printf("Length: %d\n", i);
     printf("--------\n");
 }
 

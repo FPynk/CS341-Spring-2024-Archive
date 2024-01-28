@@ -14,7 +14,8 @@ int main() {
     int TC1 = 0;
     int TC2 = 0;
     int TC3 = 0;
-    int TC4 = 1;
+    int TC4 = 0;
+    int TC5 = 1;
     if (TC1) {
         // testing count sentences
         char *s1 = " example ! example , example";
@@ -307,6 +308,80 @@ int main() {
         destroy(s9r);
         destroy(s10r);
 
+        printf("TC4 Succeses\n");
+    }
+    
+    if (TC5) {
+        char *test1 = "Hello! Is this: a test? Yes, it is.";
+        char *test2 = "word";
+        char *test3 = "Test1234 with special@characters.";
+        char *test4 = "This   is\t a \ttest.";
+        char *test5 = "";
+        char *test6 = "Line1\nLine2\nLine3.";
+        char *test7 = "Repeated... punctuation???";
+        char *test8 = "!?.;";
+        char *test9 = "LongStringWith123 Numbers, words, and&Symbols.";
+        char *test10 = "This IS A Test.";
+        char *test11 = "This1 Is2 A Test3.";
+        char *test12 = "   \t\n  \t ";
+        char *test13 = "This has\\nnewlines and\\ttabs.";
+        char *test14 = "Sentence ends here.    ";
+        char *test15 = "Well-known compound-words are here.";
+        char *test16 = "Special #$% characters 123 with numbers 4567.";
+
+        char** test1result = camel_caser(test1);
+        char** test2result = camel_caser(test2);
+        char** test3result = camel_caser(test3);
+        char** test4result = camel_caser(test4);
+        char** test5result = camel_caser(test5);
+        char** test6result = camel_caser(test6);
+        char** test7result = camel_caser(test7);
+        char** test8result = camel_caser(test8);
+        char** test9result = camel_caser(test9);
+        char** test10result = camel_caser(test10);
+        char** test11result = camel_caser(test11);
+        char** test12result = camel_caser(test12);
+        char** test13result = camel_caser(test13);
+        char** test14result = camel_caser(test14);
+        char** test15result = camel_caser(test15);
+        char** test16result = camel_caser(test16);
+        
+        // Print the results
+        printCharArray(test1result);
+        printCharArray(test2result);
+        printCharArray(test3result);
+        printCharArray(test4result);
+        printCharArray(test5result);
+        printCharArray(test6result);
+        printCharArray(test7result);
+        printCharArray(test8result);
+        printCharArray(test9result);
+        printCharArray(test10result);
+        printCharArray(test11result);
+        printCharArray(test12result);
+        printCharArray(test13result);
+        printCharArray(test14result);
+        printCharArray(test15result);
+        printCharArray(test16result);
+
+        // Destroy the results
+        destroy(test1result);
+        destroy(test2result);
+        destroy(test3result);
+        destroy(test4result);
+        destroy(test5result);
+        destroy(test6result);
+        destroy(test7result);
+        destroy(test8result);
+        destroy(test9result);
+        destroy(test10result);
+        destroy(test11result);
+        destroy(test12result);
+        destroy(test13result);
+        destroy(test14result);
+        destroy(test15result);
+        destroy(test16result);
+        
         printf("TC4 Succeses\n");
     }
     // Feel free to add more test cases of your own!
