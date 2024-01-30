@@ -158,15 +158,14 @@ void eight(int a) {
     }
 
     for (i = 0; i < 10; i++) {
-        values[i] = malloc(10 * sizeof(int));
         for (j = 0; j < 10; j++)
             values[i][j] = i * j * a;
         printf("%d ", values[i][i]);
     }
     printf("\n");
-    for (i = 0; i < 10; i++)
+    for (i = 0; i < 10; i++) {
         free(values[i]);
-
+    }
     free(values);
     values = NULL;
 }
