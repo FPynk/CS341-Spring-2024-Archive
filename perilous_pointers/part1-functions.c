@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 /**
  * Checks to see if the input parameter is a passing grade and prints out
@@ -107,7 +108,7 @@ void five(const char *a) {
  * valid c string, and prints the concatenated string.
  */
 void six(const char *str) {
-    char *s = malloc(strlen("Hello ") + strlen(*str) + 1);
+    char *s = malloc(strlen("Hello ") + strlen(str) + 1);
 
     if (s == NULL) {
         fprintf(stderr, "malloc fucked up");
@@ -145,13 +146,26 @@ void eight(int a) {
     int i, j;
     values = malloc(10 * sizeof(int *));
     for (i = 0; i < 10; i++) {
-        for (j = 0; j < 10; j++)
-            values[i][j] = i * j * a;
+        values[i] = malloc(10 * sizeof(int));
+        if (values[i] == NULL) {
+            fprintf(stderr, "Malloc failed\n");
+            for (j = 0; j < i; j++) {
+                free(values[j]);
+            }
+            free(values);
+            return;
+        }
     }
 
-    for (i = 0; i < 10; i++)
+    for (i = 0; i < 10; i++) {
+        values[i] = malloc(10 * sizeof(int));
+        for (j = 0; j < 10; j++)
+            values[i][j] = i * j * a;
         printf("%d ", values[i][i]);
+    }
     printf("\n");
+    for (i = 0; i < 10; i++)
+        free(values[i]);
 
     free(values);
     values = NULL;
@@ -167,18 +181,12 @@ void eight(int a) {
  *     Input parameter, used to determine which string is printed.
  */
 void nine(const char *s) {
-    switch (s) {
-    case "blue":
+    if (strcmp(s, "blue") == 0) {
         printf("Orange and BLUE!\n");
-        break;
-
-    case "orange":
+    } else if (strcmp(s, "orange") == 0) {
         printf("ORANGE and blue!\n");
-        break;
-
-    default:
+    } else {
         printf("orange and blue!\n");
-        break;
     }
 }
 
@@ -189,7 +197,7 @@ void nine(const char *s) {
  *     The diameter of the circle.
  */
 void ten(const int d) {
-    printf("The radius of the circle is: %f.\n", d / 2);
+    printf("The radius of the circle is: %f.\n", d / 2.0);
 }
 
 /**
@@ -217,7 +225,7 @@ void ten(const int d) {
  */
 void clear_bits(long int value, long int flag) {
     // TODO clear_bits
-    long int cleared_value = 0;
+    long int cleared_value = value & ~flag;
     printf("cleared_value: %ld\n", cleared_value);
 }
 
@@ -249,5 +257,8 @@ void clear_bits(long int value, long int flag) {
 void little_automaton(int (*transition)(int, char), const char *input_string) {
     int state = 0;
     // put something here
+    for (int i = 0; input_string[i] != '\0'; i++) {
+        state = transition(state, input_string[i]);
+    }
     printf("final state: %d\n", state);
 }
