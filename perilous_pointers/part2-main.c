@@ -26,12 +26,40 @@ int main() {
     free(*value3);
     free(value3);
 
-    int **value4 = malloc(sizeof(int*) * 6);
-    value4[5] = malloc(sizeof(int));
-    *(value4[5]) = 15;
-    strange_step((char *)value4);
-    free(value4[5]);
-    free(value4);
+    char value4[10];
+    for (int i = 0; i < 10; i++) {
+        value4[i] = 1;
+    }
+    *(int *)(value4 + 5) = 15;
+    strange_step(value4);
+
+    char value5[4];
+    value5[3] = (char) 0;
+    empty_step((void *) value5);
+
+    char value6[4];
+    value6[3] = 'u';
+    two_step((void *) value6, value6);
+
+    char value7[10];
+    three_step(value7, &value7[2], &value7[4]);
+
+    char value8[20];
+    value8[0] = (char) 0;
+    for (int i = 1; i < 4; i++) {
+        value8[i] = value8[i-1] + 8;
+    }
+    step_step_step(value8, value8, value8);
+
+    char value9[1];
+    value9[0] = (char) 3;
+    it_may_be_odd(value9, 3);
+
+    char value10[] = "CS341,CS341";
+    tok_step(value10);
+
+    int value11 = 0x10001001;
+    the_end(&value11, &value11);
 
     return 0;
 }
