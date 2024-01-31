@@ -112,6 +112,15 @@ vector *vector_create(copy_constructor_type copy_constructor,
 void vector_destroy(vector *this) {
     assert(this);
     // your code here
+    // Delete elements of array
+    assert(this->destructor != NULL);       // Sanity check
+    for (size_t i = 0; i < this->size; i++) {
+        this->destructor(this->array[i]);
+    }
+    // free array of pointers
+    free(this->array);
+    // free vector struct
+    free(this);
 }
 
 void **vector_begin(vector *this) {
@@ -125,7 +134,8 @@ void **vector_end(vector *this) {
 size_t vector_size(vector *this) {
     assert(this);
     // your code here
-    return 0;
+    assert(this->size >= 0);
+    return this->size;
 }
 
 void vector_resize(vector *this, size_t n) {
@@ -136,13 +146,14 @@ void vector_resize(vector *this, size_t n) {
 size_t vector_capacity(vector *this) {
     assert(this);
     // your code here
-    return 0;
+    assert(this->capacity >= 0);
+    return this->capacity;
 }
 
 bool vector_empty(vector *this) {
     assert(this);
     // your code here
-    return true;
+    return this->size == 0;
 }
 
 void vector_reserve(vector *this, size_t n) {
@@ -153,29 +164,45 @@ void vector_reserve(vector *this, size_t n) {
 void **vector_at(vector *this, size_t position) {
     assert(this);
     // your code here
-    return NULL;
+    assert(position < this->size);      // Check within bounds
+    return &this->array[position];
 }
 
 void vector_set(vector *this, size_t position, void *element) {
     assert(this);
     // your code here
+    assert(element);                    // NULL checking
+    assert(position < this->size);      // out of bounds
+    assert(this->copy_constructor);
+    // check if element occupies slot, delete and copy if yes
+    if (this->array[position]) {
+        assert(this->destructor);
+        this->destructor(this->array[position]);
+        this->array[position] = this->copy_constructor(element);
+    } else {
+        this->array[position] = this->copy_constructor(element);
+    }
 }
 
 void *vector_get(vector *this, size_t position) {
     assert(this);
     // your code here
-    return NULL;
+    assert(position < this->size);
+    return this->array[position];
 }
 
 void **vector_front(vector *this) {
     assert(this);
     // your code here
-    return NULL;
+    assert(this->size > 0);
+    return &this->array[0];
 }
 
 void **vector_back(vector *this) {
     // your code here
-    return NULL;
+    assert(this);
+    assert(this->size > 0);
+    return &this->array[this->size - 1];
 }
 
 void vector_push_back(vector *this, void *element) {
@@ -191,6 +218,7 @@ void vector_pop_back(vector *this) {
 void vector_insert(vector *this, size_t position, void *element) {
     assert(this);
     // your code here
+    // Allow insert at size but not size + 1 so if size =12 cap =20 insert at 12 and 11 legal, 13 not legal
 }
 
 void vector_erase(vector *this, size_t position) {
