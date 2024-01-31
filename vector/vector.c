@@ -79,11 +79,34 @@ vector *vector_create(copy_constructor_type copy_constructor,
                       destructor_type destructor,
                       default_constructor_type default_constructor) {
     // your code here
+    // allocating memory for vector struct;
+    vector *vec = malloc(sizeof(vector));
+    if (vec == NULL) {
+        perror("Failed to malloc vector");
+        return NULL;
+    }
+    // assign function pointers
+    vec->copy_constructor = copy_constructor;
+    vec->destructor = destructor;
+    vec->default_constructor = default_constructor;
+
+    // initialise size and cap
+    vec->size = 0;
+    vec->capacity = INITIAL_CAPACITY;
+
+    // allocate memory for the array
+    vec->array = malloc(sizeof(void *) * vec->capacity);
+    if (vec->array == NULL) {
+        perror("Failed to malloc vector array");
+        free(vec);          // free struct memory
+        return NULL
+    }
+    return vec;
     // Casting to void to remove complier error. Remove this line when you are
     // ready.
-    (void)INITIAL_CAPACITY;
-    (void)get_new_capacity;
-    return NULL;
+    // (void)INITIAL_CAPACITY;
+    // (void)get_new_capacity;
+    // return NULL;
 }
 
 void vector_destroy(vector *this) {
