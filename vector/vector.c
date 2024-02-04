@@ -4,6 +4,7 @@
  */
 #include "vector.h"
 #include <assert.h>
+#include <stdio.h>
 
 struct vector {
     /* The function callback for the user to define the way they want to copy
@@ -99,7 +100,7 @@ vector *vector_create(copy_constructor_type copy_constructor,
     if (vec->array == NULL) {
         perror("Failed to malloc vector array");
         free(vec);          // free struct memory
-        return NULL
+        return NULL;
     }
     return vec;
     // Casting to void to remove complier error. Remove this line when you are
@@ -151,7 +152,7 @@ void vector_resize(vector *this, size_t n) {
         // resize if n is greater than current capacity
         if (n > this->capacity) {
             // Case 2: new size larger, reallocate
-            size_t new_capacity = n;
+            size_t new_capacity = get_new_capacity(n);
             void** new_array = realloc(this->array, new_capacity * sizeof(void *));
             // check for failure
             if (!new_array) {
@@ -159,7 +160,7 @@ void vector_resize(vector *this, size_t n) {
                 return;
             }
             this->array = new_array;
-            this->capacity = new_capacity
+            this->capacity = new_capacity;
         }
 
         // Case 3: new size larger than current size, initialise new elements
@@ -187,6 +188,17 @@ bool vector_empty(vector *this) {
 void vector_reserve(vector *this, size_t n) {
     assert(this);
     // your code here
+    if (n > this->capacity) {
+        // allocate new array
+        size_t new_capacity = get_new_capacity(n);
+        void **new_array = realloc(this->array, new_capacity * sizeof(void *));
+        if (!new_array) {
+            perror("Failed to reserve and realloc new array");
+            return;
+        }
+        this->array = new_array;
+        this->capacity = new_capacity;
+    }
 }
 
 void **vector_at(vector *this, size_t position) {
@@ -196,6 +208,7 @@ void **vector_at(vector *this, size_t position) {
     return &this->array[position];
 }
 
+// do we need to resize if set is beyond size? Throw error first
 void vector_set(vector *this, size_t position, void *element) {
     assert(this);
     // your code here
@@ -236,25 +249,87 @@ void **vector_back(vector *this) {
 void vector_push_back(vector *this, void *element) {
     assert(this);
     // your code here
+    // Check if need to expand the vector
+    if (this->size == this->capacity) {
+        // resize to 2 times
+        size_t new_capacity = this->capacity > 0 ? get_new_capacity(this->capacity) : 1;
+        void **new_array = realloc(this->array, new_capacity * sizeof(void **));
+        if (new_array == NULL) {
+            perror("Failed to realloc mem in vector_push_back");
+            return;
+        }
+        this->array = new_array;
+        this->capacity = new_capacity;
+    }
+
+    assert(this->copy_constructor);
+    this->array[this->size] = this->copy_constructor(element);
+    this->size++;
 }
 
 void vector_pop_back(vector *this) {
     assert(this);
     // your code here
+
+    // check empty
+    if (this->size > 0){
+        assert(this->destructor);
+        this->destructor(this->array[this->size - 1]);
+        this->size--;
+    } else {
+        perror("Attempted popback with Size 0");
+    }
 }
 
 void vector_insert(vector *this, size_t position, void *element) {
     assert(this);
     // your code here
     // Allow insert at size but not size + 1 so if size =12 cap =20 insert at 12 and 11 legal, 13 not legal
+    assert(position <= this->size);
+
+    // Check capacity
+    if (this->size == this->capacity) {
+        size_t new_capacity = this->capacity > 0? get_new_capacity(this->capacity) : 1;
+        void **new_array = realloc(this->array, new_capacity * sizeof(void**));
+        if (!new_array) {
+            perror("Failed realloc vector insert");
+            return;
+        }
+        this->array = new_array;
+        this->capacity = new_capacity;
+    }
+
+    // Shift ele to right to make space for new ele
+    for (size_t i = this->size; i > position; --i) {
+        this->array[i] = this->array[i-1];
+    }
+    // insert new ele
+    assert(this->copy_constructor);
+    this->array[position] = this->copy_constructor(element);
+    this->size++;
 }
 
 void vector_erase(vector *this, size_t position) {
     assert(this);
     assert(position < vector_size(this));
     // your code here
+    assert(this->destructor);
+    this->destructor(this->array[position]);
+    // shift eles
+    for (size_t i = position; i < this->size; i++) {
+        this->array[i] = this->array[i+1];
+    }
+    //delete last element
+    this->destructor(this->array[this->size - 1]);
+    this->size--;
 }
 
 void vector_clear(vector *this) {
     // your code here
+    assert(this);
+    assert(this->destructor);
+    for (size_t i = 0; i < this->size; i++) {
+        this->destructor(this->array[i]);
+    }
+    this->size = 0;
 }
