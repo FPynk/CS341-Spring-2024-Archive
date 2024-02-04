@@ -252,7 +252,7 @@ void vector_push_back(vector *this, void *element) {
     // Check if need to expand the vector
     if (this->size == this->capacity) {
         // resize to 2 times
-        size_t new_capacity = this->capacity > 0 ? get_new_capacity(this->capacity) : 1;
+        size_t new_capacity = this->capacity > 0 ? get_new_capacity(this->capacity + 1) : 1;
         void **new_array = realloc(this->array, new_capacity * sizeof(void **));
         if (new_array == NULL) {
             perror("Failed to realloc mem in vector_push_back");
@@ -289,7 +289,7 @@ void vector_insert(vector *this, size_t position, void *element) {
 
     // Check capacity
     if (this->size == this->capacity) {
-        size_t new_capacity = this->capacity > 0? get_new_capacity(this->capacity) : 1;
+        size_t new_capacity = this->capacity > 0? get_new_capacity(this->capacity + 1) : 1;
         void **new_array = realloc(this->array, new_capacity * sizeof(void**));
         if (!new_array) {
             perror("Failed realloc vector insert");
