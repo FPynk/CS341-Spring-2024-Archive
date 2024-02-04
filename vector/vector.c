@@ -141,6 +141,34 @@ size_t vector_size(vector *this) {
 void vector_resize(vector *this, size_t n) {
     assert(this);
     // your code here
+    if (n < this->size) {
+        // Case 1: new size smaller, destroy excess
+        assert(this->destructor);
+        for (size_t i = n; i < this->size; i++) {
+            this->destructor(this->array[i]);
+        }
+    } else if (n > this->size) {
+        // resize if n is greater than current capacity
+        if (n > this->capacity) {
+            // Case 2: new size larger, reallocate
+            size_t new_capacity = n;
+            void** new_array = realloc(this->array, new_capacity * sizeof(void *));
+            // check for failure
+            if (!new_array) {
+                perror("Failed to realloc memory for vector resize");
+                return;
+            }
+            this->array = new_array;
+            this->capacity = new_capacity
+        }
+
+        // Case 3: new size larger than current size, initialise new elements
+        assert(this->default_constructor);
+        for (size_t i = this->size; i < n; ++i) {
+            this->array[i] = this->default_constructor();
+        }
+    }
+    this->size = n;
 }
 
 size_t vector_capacity(vector *this) {
