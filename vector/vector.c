@@ -102,6 +102,10 @@ vector *vector_create(copy_constructor_type copy_constructor,
         free(vec);          // free struct memory
         return NULL;
     }
+    // Initialize the newly allocated space to NULL
+    for (size_t i = 0; i < vec->capacity; ++i) {
+        vec->array[i] = NULL;
+    }
     return vec;
     // Casting to void to remove complier error. Remove this line when you are
     // ready.
@@ -159,6 +163,9 @@ void vector_resize(vector *this, size_t n) {
                 perror("Failed to realloc memory for vector resize");
                 return;
             }
+            for (size_t i = this->capacity; i < new_capacity; ++i) {
+                new_array[i] = NULL;
+            }
             this->array = new_array;
             this->capacity = new_capacity;
         }
@@ -195,6 +202,9 @@ void vector_reserve(vector *this, size_t n) {
         if (!new_array) {
             perror("Failed to reserve and realloc new array");
             return;
+        }
+        for (size_t i = this->capacity; i < new_capacity; ++i) {
+            new_array[i] = NULL;
         }
         this->array = new_array;
         this->capacity = new_capacity;
@@ -258,6 +268,12 @@ void vector_push_back(vector *this, void *element) {
             perror("Failed to realloc mem in vector_push_back");
             return;
         }
+
+        // Initialize the newly allocated space to NULL
+        for (size_t i = this->capacity; i < new_capacity; ++i) {
+            new_array[i] = NULL;
+        }
+
         this->array = new_array;
         this->capacity = new_capacity;
     }
@@ -294,6 +310,9 @@ void vector_insert(vector *this, size_t position, void *element) {
         if (!new_array) {
             perror("Failed realloc vector insert");
             return;
+        }
+        for (size_t i = this->capacity; i < new_capacity; ++i) {
+            new_array[i] = NULL;
         }
         this->array = new_array;
         this->capacity = new_capacity;
