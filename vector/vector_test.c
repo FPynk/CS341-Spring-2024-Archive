@@ -4,7 +4,7 @@
  */
 #include "vector.h"
 #include <stdio.h>
-
+#include <string.h>
 
 // void *int_copy_constructor(void *elem) {
 //     if (!elem) return NULL;
@@ -26,14 +26,14 @@
 int main(int argc, char *argv[]) {
     // Write your test cases here
 
-    // Create a vector for integers
-    vector *int_vector = vector_create(int_copy_constructor, int_destructor, int_default_constructor);
-
     int TC1 = 0;
-    int TC2 = 1;
+    int TC2 = 0;
+    int TC3 = 1;
+    int TC4 = 1;
     // basic testing
     if (TC1) {
         // Test inserting elements
+        vector *int_vector = vector_create(int_copy_constructor, int_destructor, int_default_constructor);
         int a = 10, b = 20;
         vector_push_back(int_vector, &a);
         vector_push_back(int_vector, &b);
@@ -57,6 +57,7 @@ int main(int argc, char *argv[]) {
     }
     // testing 100 elements
     if (TC2) {
+        vector *int_vector = vector_create(int_copy_constructor, int_destructor, int_default_constructor);
         // Test inserting 100 elements using vector_push_back
         for (int i = 0; i < 100; ++i) {
             vector_push_back(int_vector, &i);
@@ -86,6 +87,79 @@ int main(int argc, char *argv[]) {
 
         // Destroy the vector
         vector_destroy(int_vector);
+    }
+
+    if (TC3) {
+        vector* my_vector = vector_create(string_copy_constructor, string_destructor, string_default_constructor);
+
+        // Fill the vector with test strings
+        for (int i = 0; i < 5; ++i) {
+            char temp[20];
+            sprintf(temp, "Test String %d", i);
+            char* str = strdup(temp); // Use strdup to dynamically allocate memory for the string
+            vector_push_back(my_vector, str);
+            free(str); // Free the temporary string, assuming vector_push_back makes a copy
+        }
+
+        // Display the vector contents before erasure
+        printf("Vector before erasures:\n");
+        for (size_t i = 0; i < vector_size(my_vector); ++i) {
+            printf("%s\n", (char*)vector_get(my_vector, i));
+        }
+
+        // Erase a few elements from different positions
+        vector_erase(my_vector, 0); // Beginning
+        vector_erase(my_vector, 2); // Middle (note: indices shift after erasure)
+        vector_erase(my_vector, vector_size(my_vector) - 1); // End
+
+        // Display the vector contents after erasures but before clear
+        printf("\nVector after erasures and before clear:\n");
+        for (size_t i = 0; i < vector_size(my_vector); ++i) {
+            printf("%s\n", (char*)vector_get(my_vector, i));
+        }
+
+        // Clear the vector to remove and free remaining elements
+        vector_clear(my_vector);
+
+        // Destroy the vector itself
+        vector_destroy(my_vector);
+
+        printf("\nTest completed: vector_erase and vector_clear\n");
+    }
+
+    if (TC4) {
+        vector* test_vec1 = vector_create(int_copy_constructor, int_destructor, int_default_constructor);
+        // Fill the vector with integers
+        for (int i = 0; i < 5; ++i) {
+            vector_push_back(test_vec1, (void *)&i);
+        }
+
+        // Display the vector contents before erasure
+        printf("Vector before erasures:\n");
+        for (size_t i = 0; i < vector_size(test_vec1); ++i) {
+            int* item = (int*)vector_get(test_vec1, i);
+            printf("%d\n", *item);
+        }
+
+        // Erase a few elements from different positions
+        vector_erase(test_vec1, 0); // Beginning
+        vector_erase(test_vec1, 2); // Middle (indices shift after erasure)
+        vector_erase(test_vec1, vector_size(test_vec1) - 1); // End
+
+        // Display the vector contents after erasures but before clear
+        printf("\nVector after erasures and before clear:\n");
+        for (size_t i = 0; i < vector_size(test_vec1); ++i) {
+            int* item = (int*)vector_get(test_vec1, i);
+            printf("%d\n", *item);
+        }
+
+        // Clear the vector to remove and free remaining elements
+        vector_clear(test_vec1);
+
+        // Destroy the vector itself
+        vector_destroy(test_vec1);
+
+        printf("\nTest completed: vector_erase and vector_clear\n");
     }
     return 0;
 }
