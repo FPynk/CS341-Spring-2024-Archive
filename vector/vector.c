@@ -338,8 +338,8 @@ void vector_erase(vector *this, size_t position) {
     for (size_t i = position; i < this->size; i++) {
         this->array[i] = this->array[i+1];
     }
-    //delete last element
-    this->destructor(this->array[this->size - 1]);
+    //Set last element to null
+    this->array[this->size - 1] = NULL;
     this->size--;
 }
 
