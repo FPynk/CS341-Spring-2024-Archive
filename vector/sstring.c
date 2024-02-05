@@ -114,7 +114,13 @@ vector *sstring_split(sstring *this, char delimiter) {
             vector_push_back(temp_vec, (void *) &curr);
         }
     }
-
+    // add "" if last ele is delimiter
+    if (*((char *) vector_get(this->char_vec, vector_size(this->char_vec) - 1)) == delimiter) {
+        char *temp = malloc(sizeof(char));
+        temp[0] = '\0';
+        vector_push_back(out, temp);
+        free(temp);
+    }
     vector_destroy(temp_vec);
     return out;
 }

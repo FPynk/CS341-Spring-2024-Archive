@@ -89,6 +89,29 @@ void test_sstring_slice() {
     printf("test_sstring_slice passed\n");
 }
 
+void test_sstring_split_hard() {
+    sstring *str = cstr_to_sstring("aaaaaaaaaa");
+    vector *split_vec = sstring_split(str, 'a');
+    printf("vector size: %zu\n", vector_size(split_vec));
+    assert(vector_size(split_vec) == 11); // Expected 3 segments
+
+    // Validate each segment
+    char *segment1 = vector_get(split_vec, 0);
+    char *segment2 = vector_get(split_vec, 1);
+    char *segment3 = vector_get(split_vec, 2);
+
+    printf("segment1: %s\n", segment1);
+    printf("segment2: %s\n", segment2);
+    printf("segment3: %s\n", segment3);
+    assert(strcmp(segment1, "") == 0);
+    assert(strcmp(segment2, "") == 0);
+    assert(strcmp(segment3, "") == 0);
+
+    vector_destroy(split_vec);
+    sstring_destroy(str);
+    printf("test_sstring_split_hard passed\n");
+}
+
 int main(int argc, char *argv[]) {
     // TODO create some tests
     test_cstr_to_sstring_and_sstring_to_cstr();
@@ -96,5 +119,6 @@ int main(int argc, char *argv[]) {
     test_sstring_split();
     test_sstring_substitute();
     test_sstring_slice();
+    test_sstring_split_hard();
     return 0;
 }
