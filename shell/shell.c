@@ -33,8 +33,15 @@ typedef struct shell_env {
     vector *command_history;
 } shell_env;
 
-// Function prototypes
+// Helpers
+// converts cstr to sstring then push back
+// void vector_push_back_cstring(vector *vec, const char* str) {
+//     sstring *s_str = cstr_to_sstring(str);
+//     vector_push_back(vec, s_str);
+//     sstring_destroy(s_str);
+// }
 
+// Function prototypes
 void parse_arguments(int argc, char * argv[], shell_env *env);
 void load_history(shell_env *env);
 void save_history(shell_env *env);
@@ -91,10 +98,10 @@ void load_history(shell_env *env) {
         // convert line to sstring and add to command history
         sstring *command = cstr_to_sstring(line);
         if (command != NULL) {
-            debug_print("Adding to cmd hist:");
-            debug_print(sstring_to_cstr(command));
+            // debug_print("Adding to cmd hist:");
             vector_push_back(env->command_history, command);
         }
+        sstring_destroy(command);
     }
 
     free(line);
@@ -116,11 +123,16 @@ void save_history(shell_env *env) {
     // iterate through command history vector and append each command to the file
     for (size_t i = env->initial_history_size; i < vector_size(env->command_history); ++i) {
         sstring *command = (sstring *) vector_get(env->command_history, i);
+        if (command == NULL) {
+            debug_print("Encountered NULL command in history.");
+            continue; // Skip this iteration
+        }
         char *command_str = sstring_to_cstr(command);
         debug_print("Adding to cmd hist file:");
         debug_print(command_str);
         fprintf(file, "%s\n", command_str);
         free(command_str);
+        sstring_destroy(command);
     }
     fclose(file);
 }
@@ -144,14 +156,20 @@ void execute_script(shell_env *env) {
             line[read - 1] = '\0';
         }
         // figure out command and execute
-        if (strncmp(line, "cd", 3) == 0) {
-            helper_change_directory(line + 3);
+        if (strncmp(line, "cd", 2) == 0) {
+            helper_change_directory(line + 2);
+            sstring *s_str = cstr_to_sstring(line);
+            vector_push_back(env->command_history, s_str);
+            sstring_destroy(s_str);
         } else if (strncmp(line, "!history", 8) == 0) {
+            // not stored in hist
             helper_history(env);
         } else  if (line[0] == '#') {
             int n = atoi(line + 1);
+            // not stored in hist, store cmd this calls
             helper_n(env, n);
         } else if (line[0] == '!') {
+            // not stored in hist, store cmd this calls
             helper_prefix(env, line + 1);
         } else if (strncmp(line, "exit", 4) == 0) {
             break;
@@ -170,11 +188,43 @@ void catch_sigint(int signum) {
 }
 
 // built in commands
+// no need to print success
 int helper_change_directory(const char *path) {
+    debug_print("Function: Helper CD");
+    // try to chdir then check result
+    if (chdir(path) != 0) {
+        // failed check which error
+        switch(errno) {
+            case ENOENT:
+                // directory DNE
+                print_no_directory(path);
+                break;
+            case EACCES:
+                debug_print("Perm denied for cd");
+                break;
+            default:
+                debug_print("Can't CD for some reason");
+                break;
+        }
+        return -1; // error return
+    }
+    // success
+    debug_print("Success cd");
     return 0;
 }
 
 int helper_history(const shell_env *env) {
+    debug_print("Function: Helper History");
+    for (size_t i = 0; i < vector_size(env->command_history); ++i) {
+        sstring *sstr = (sstring *) vector_get(env->command_history, i);
+        char *str = sstring_to_cstr(sstr);
+        if (!str) {
+            debug_print("Helper history: Why the fuck is this line NULL");
+            return -1;
+        }
+        print_history_line(i, str);
+        free(str);
+    }
     return 0;
 }
 
@@ -202,7 +252,7 @@ int helper_prefix(const shell_env *env, const char *prefix) {
     // reads from stdin or -f for file
 
     // built-in and external
-    // built-in: exe w/o creating new process
+    // built-in: exe w/o creating new process (No need to print PID)
     // external: exe w/ creating new process (not one of built in listed)
     // If run by new process, print PID: Command executed by pid=<pid>, see format.h
     // Command arguments: whitespace delimited w/o trailing whitespace, no need to support quotes
@@ -230,7 +280,7 @@ int helper_prefix(const shell_env *env, const char *prefix) {
     // use system call
 
     // !history
-    // Prints out each commadn in the history in order
+    // Prints out each command in the history in order
     // DO NOT STORE THIS COMMAND IN HISTORY
 
     // #<n>
@@ -269,7 +319,19 @@ int shell(int argc, char *argv[]) {
 
     //save history upon exit
     if (env.history_file_path) {
-        save_history(&env);
+       for (size_t i = 0; i < vector_size(env.command_history); ++i) {
+            // Assuming command_history stores pointers to sstring objects
+            sstring* command_sstr = (sstring*) vector_get(env.command_history, i);
+            char* command_cstr = sstring_to_cstr(command_sstr); // Convert to C string
+            if (command_cstr != NULL) {
+                printf("%zu: %s\n", i, command_cstr); // Print the command
+                free(command_sstr);
+                free(command_cstr); // Free the dynamically allocated C string
+            } else {
+                printf("%zu: (null)\n", i); // Handle the case where conversion fails
+            }
+        }
+        // save_history(&env);
     }
 
     // Cleaning up shell
