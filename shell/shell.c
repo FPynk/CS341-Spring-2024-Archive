@@ -146,7 +146,7 @@ void execute_script(shell_env *env) {
         }
         // figure out command and execute
         if (strncmp(line, "cd", 2) == 0) {
-            helper_change_directory(line + 2);
+            helper_change_directory(line + 3);
             vector_push_back(env->command_history, line);
         } else if (strncmp(line, "!history", 8) == 0) {
             // not stored in hist
@@ -209,7 +209,6 @@ int helper_history(const shell_env *env) {
             return -1;
         }
         print_history_line(i, str);
-        free(str);
     }
     return 0;
 }
