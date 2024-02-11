@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <errno.h>
 
 #include "format.h"
 #include "shell.h"
@@ -71,7 +72,11 @@ void load_history(shell_env *env) {
     FILE *file = fopen(env->history_file_path, "r");
     if (!file) {
         // treat as empty file
-        debug_print("Empty cmd hist file");
+        if (errno == ENOENT) {
+            debug_print("Empty cmd hist file");
+        } else {
+            print_history_file_error();
+        }
         return;
     }
     debug_print("Not empty cmd hist file");
@@ -121,8 +126,44 @@ void save_history(shell_env *env) {
 }
 
 void execute_script(shell_env *env) {
+    debug_print("Function: execute_script");
 
+    FILE *file = fopen(env->script_file_path, "r");
+    if (!file) {
+        print_script_file_error();
+        return;
+    }
+
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    while((read = getline(&line, &len, file)) != -1) {
+        // remove newline 
+        if (line[read - 1] == '\n') {
+            line[read - 1] = '\0';
+        }
+        // figure out command and execute
+        if (strncmp(line, "cd", 3) == 0) {
+            helper_change_directory(line + 3);
+        } else if (strncmp(line, "!history", 8) == 0) {
+            helper_history(env);
+        } else  if (line[0] == '#') {
+            int n = atoi(line + 1);
+            helper_n(env, n);
+        } else if (line[0] == '!') {
+            helper_prefix(env, line + 1);
+        } else if (strncmp(line, "exit", 4) == 0) {
+            break;
+        } else {
+            // TODO: figure out wtf to do here
+            printf("Unrecognized command in script: %s\n", line);
+        }
+    }
+    free(line);
+    fclose(file);
 }
+
 
 void catch_sigint(int signum) {
 
@@ -144,6 +185,7 @@ int helper_n(const shell_env *env, int n) {
 int helper_prefix(const shell_env *env, const char *prefix) {
     return 0;
 }
+
     // TODO: This is the entry point for your shell.
     // Print a command prompt
     // Read the command from standard input
