@@ -49,6 +49,7 @@ void execute_script(shell_env *env);
 void catch_sigint(int signum);
 
 // built in commands
+int command_line_exe(const shell_env *env, char* line);
 int helper_change_directory(const char *path);
 int helper_history(const shell_env *env);
 int helper_n(const shell_env *env, int n);
@@ -144,25 +145,9 @@ void execute_script(shell_env *env) {
         if (line[read - 1] == '\n') {
             line[read - 1] = '\0';
         }
-        // figure out command and execute
-        if (strncmp(line, "cd", 2) == 0) {
-            helper_change_directory(line + 3);
-            vector_push_back(env->command_history, line);
-        } else if (strncmp(line, "!history", 8) == 0) {
-            // not stored in hist
-            helper_history(env);
-        } else  if (line[0] == '#') {
-            int n = atoi(line + 1);
-            // not stored in hist, store cmd this calls
-            helper_n(env, n);
-        } else if (line[0] == '!') {
-            // not stored in hist, store cmd this calls
-            helper_prefix(env, line + 1);
-        } else if (strncmp(line, "exit", 4) == 0) {
+        int status = command_line_exe(env, line);
+        if (status == 1) {
             break;
-        } else {
-            // TODO: figure out wtf to do here
-            printf("Unrecognized command in script: %s\n", line);
         }
     }
     free(line);
@@ -172,6 +157,33 @@ void execute_script(shell_env *env) {
 
 void catch_sigint(int signum) {
 
+}
+
+// Figures out cmd from line and runs it
+// Currently only support some built in commands
+int command_line_exe(const shell_env *env, char *line) {
+    // figure out command and execute
+    if (strncmp(line, "cd", 2) == 0) {
+        helper_change_directory(line + 3);
+        vector_push_back(env->command_history, line);
+    } else if (strncmp(line, "!history", 8) == 0) {
+        // not stored in hist
+        helper_history(env);
+    } else  if (line[0] == '#') {
+        int n = atoi(line + 1);
+        // not stored in hist, store cmd this calls
+        helper_n(env, n);
+    } else if (line[0] == '!') {
+        // not stored in hist, store cmd this calls
+        helper_prefix(env, line + 1);
+    } else if (strncmp(line, "exit", 4) == 0) {
+        return 1;
+    } else {
+        // TODO: figure out wtf to do here
+        printf("Unrecognized command in script: %s\n", line);
+        return -1;
+    }
+    return 0;
 }
 
 // built in commands
@@ -214,11 +226,46 @@ int helper_history(const shell_env *env) {
 }
 
 int helper_n(const shell_env *env, int n) {
-    return 0;
+    debug_print("Function: helper_n");
+    // printf("%d\n", n);
+    if (n < 0 || n >= (int) vector_size(env->command_history)) {
+        print_invalid_index();
+        return -1;
+    }
+    char *command = (char *) vector_get(env->command_history, n);
+    int status = command_line_exe(env, command);
+    return status;
 }
 
 int helper_prefix(const shell_env *env, const char *prefix) {
-    return 0;
+    debug_print("Function: helper_prefix");
+    int found = 0;
+    char *command_to_execute = NULL;
+
+    // iterate in reverse order
+    for (int i = vector_size(env->command_history) - 1; i >= 0; --i) {
+        char *command_str = (char *) vector_get(env->command_history, i);
+
+        // Check command starts with prefix
+        if (strncmp(command_str, prefix, strlen(prefix)) == 0) {
+            found = 1;
+            command_to_execute = command_str; // possible memory error here
+            debug_print("Command found, exe");
+            break;
+        }
+    }
+
+    if (!found) {
+        print_no_history_match();
+        return -1;
+    } else {
+        if (command_line_exe(env, command_to_execute) != 0) {
+            debug_print("Command failed to exe");
+            return -1;
+        }
+        debug_print("Command Success");
+        return 0;
+    }
 }
 
     // TODO: This is the entry point for your shell.
