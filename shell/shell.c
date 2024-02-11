@@ -96,12 +96,7 @@ void load_history(shell_env *env) {
             line[read - 1] = '\0';
         }
         // convert line to sstring and add to command history
-        sstring *command = cstr_to_sstring(line);
-        if (command != NULL) {
-            // debug_print("Adding to cmd hist:");
-            vector_push_back(env->command_history, command);
-        }
-        sstring_destroy(command);
+        vector_push_back(env->command_history, line);
     }
 
     free(line);
@@ -122,17 +117,11 @@ void save_history(shell_env *env) {
 
     // iterate through command history vector and append each command to the file
     for (size_t i = env->initial_history_size; i < vector_size(env->command_history); ++i) {
-        sstring *command = (sstring *) vector_get(env->command_history, i);
-        if (command == NULL) {
-            debug_print("Encountered NULL command in history.");
-            continue; // Skip this iteration
-        }
-        char *command_str = sstring_to_cstr(command);
+        char *command_str = (char *) vector_get(env->command_history, i);
         debug_print("Adding to cmd hist file:");
         debug_print(command_str);
         fprintf(file, "%s\n", command_str);
-        free(command_str);
-        sstring_destroy(command);
+        // free(command_str);
     }
     fclose(file);
 }
@@ -158,9 +147,7 @@ void execute_script(shell_env *env) {
         // figure out command and execute
         if (strncmp(line, "cd", 2) == 0) {
             helper_change_directory(line + 2);
-            sstring *s_str = cstr_to_sstring(line);
-            vector_push_back(env->command_history, s_str);
-            sstring_destroy(s_str);
+            vector_push_back(env->command_history, line);
         } else if (strncmp(line, "!history", 8) == 0) {
             // not stored in hist
             helper_history(env);
@@ -216,8 +203,7 @@ int helper_change_directory(const char *path) {
 int helper_history(const shell_env *env) {
     debug_print("Function: Helper History");
     for (size_t i = 0; i < vector_size(env->command_history); ++i) {
-        sstring *sstr = (sstring *) vector_get(env->command_history, i);
-        char *str = sstring_to_cstr(sstr);
+        char *str = (char *) vector_get(env->command_history, i);
         if (!str) {
             debug_print("Helper history: Why the fuck is this line NULL");
             return -1;
@@ -319,19 +305,7 @@ int shell(int argc, char *argv[]) {
 
     //save history upon exit
     if (env.history_file_path) {
-       for (size_t i = 0; i < vector_size(env.command_history); ++i) {
-            // Assuming command_history stores pointers to sstring objects
-            sstring* command_sstr = (sstring*) vector_get(env.command_history, i);
-            char* command_cstr = sstring_to_cstr(command_sstr); // Convert to C string
-            if (command_cstr != NULL) {
-                printf("%zu: %s\n", i, command_cstr); // Print the command
-                free(command_sstr);
-                free(command_cstr); // Free the dynamically allocated C string
-            } else {
-                printf("%zu: (null)\n", i); // Handle the case where conversion fails
-            }
-        }
-        // save_history(&env);
+        save_history(&env);
     }
 
     // Cleaning up shell
