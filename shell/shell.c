@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/wait.h>
 
 #include "format.h"
 #include "shell.h"
@@ -54,6 +55,9 @@ int helper_change_directory(const char *path);
 int helper_history(const shell_env *env);
 int helper_n(const shell_env *env, int n);
 int helper_prefix(const shell_env *env, const char *prefix);
+
+// external commands
+int helper_external_command(const shell_env *env, const char *line);
 
 // function protos
 // Parse and handle -f and -h arguments
@@ -154,7 +158,6 @@ void execute_script(shell_env *env) {
     fclose(file);
 }
 
-
 void catch_sigint(int signum) {
 
 }
@@ -179,9 +182,12 @@ int command_line_exe(const shell_env *env, char *line) {
     } else if (strncmp(line, "exit", 4) == 0) {
         return 1;
     } else {
+        // Exe external command
+        helper_external_command(env, line);
+        vector_push_back(env->command_history, line);
         // TODO: figure out wtf to do here
-        printf("Unrecognized command in script: %s\n", line);
-        return -1;
+        // printf("Unrecognized command in script: %s\n", line);
+        // return -1;
     }
     return 0;
 }
@@ -267,6 +273,51 @@ int helper_prefix(const shell_env *env, const char *prefix) {
         return 0;
     }
 }
+
+int helper_external_command(const shell_env *env, const char *line) {
+    pid_t pid;
+    int status;
+    // prevent double printing due to fork()
+    fflush(stdout);
+    
+    // fork new process
+    pid = fork();
+
+    if (pid == -1) {
+        // fork failed
+        print_fork_failed();
+        return -1;
+    } else if (pid == 0) {
+        // child process
+        // Parse command and arguments
+        char *argv[64]; // max 64 arguments
+        int argc = 0;
+        char *token = strtok(strdup(line), " "); // strtok modifies string
+        while (token != NULL && argc < 63) {
+            argv[argc++] = token;
+            token = strtok(NULL, " ");
+        }
+        argv[argc] = NULL;
+
+        // exe cmd
+        if (execvp(argv[0], argv) == -1) {
+            print_exec_failed(argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        // parent process
+        // wait for child to finish
+        print_command_executed(pid);
+        do {
+            if (waitpid(pid, &status, 0) == -1) {
+                print_wait_failed();
+                return -1;
+            }
+        } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+    }
+    return 0;
+}
+
 
     // TODO: This is the entry point for your shell.
     // Print a command prompt
