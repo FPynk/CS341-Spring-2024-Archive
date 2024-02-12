@@ -16,10 +16,10 @@
 
 // debug print
 void debug_print(const char *msg) {
-    // #ifdef DEBUG
-    // printf("DEBUG: %s\n", msg);
-    // fflush(stdout);
-    // #endif
+    #ifdef DEBUG
+    printf("DEBUG: %s\n", msg);
+    fflush(stdout);
+    #endif
 }
 
 typedef struct process {
