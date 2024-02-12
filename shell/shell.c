@@ -347,7 +347,7 @@ int helper_n(const shell_env *env, int n) {
         return -1;
     }
     char *command = (char *) vector_get(env->command_history, n);
-    int status = command_line_exe(env, command);
+    int status = command_logical_operators(env, command);
     return status;
 }
 
@@ -380,7 +380,7 @@ int helper_prefix(const shell_env *env, const char *prefix) {
         print_no_history_match();
         return -1;
     } else {
-        if (command_line_exe(env, command_to_execute) != 0) {
+        if (command_logical_operators(env, command_to_execute) != 0) {
             debug_print("Command failed to exe");
             return -1;
         }
