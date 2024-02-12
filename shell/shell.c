@@ -151,7 +151,7 @@ void execute_script(shell_env *env) {
         if (line[read - 1] == '\n') {
             line[read - 1] = '\0';
         }
-        int status = command_line_exe(env, line);
+        int status = command_logical_operators(env, line);
         if (status == 1) {
             break;
         }
@@ -165,6 +165,7 @@ void catch_sigint(int signum) {
 }
 
 void erase_last_if_no_match(vector *vec, const char *line) {
+    // debug_print("Function: erase_last_if_no_match");
     if (vector_size(vec) == 0) {
         // Vector is empty, nothing to do
         return;
@@ -173,6 +174,7 @@ void erase_last_if_no_match(vector *vec, const char *line) {
     char *last_element = (char *) vector_back(vec);
     // compare the last element with line
     if (strcmp(last_element, line) != 0) {
+        debug_print(line);
         vector_pop_back(vec);
     }
 }
@@ -187,12 +189,12 @@ int command_logical_operators(const shell_env *env, char *line) {
     // && operator
     if ((delimiter = strstr(line, " && ")) != NULL) {
         // split at log operator
+        vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = line;
         char *second_cmd = delimiter + 4; // && cmd2
 
         // Exe and saving to history, remove duplicates
-        vector_push_back(env->command_history, line);
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
         if (last_exit_status == 0) {
@@ -201,9 +203,11 @@ int command_logical_operators(const shell_env *env, char *line) {
         }
     // || operator
     } else if ((delimiter = strstr(line, " || ")) != NULL) {
+        vector_push_back(env->command_history, line);
+        *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = line;
         char *second_cmd = delimiter + 4; // || cmd2
-        vector_push_back(env->command_history, line);
+        
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
         if (last_exit_status != 0) {
@@ -212,9 +216,10 @@ int command_logical_operators(const shell_env *env, char *line) {
         }
     // ; operator
     } else if ((delimiter = strstr(line, " ; ")) != NULL) {
+        vector_push_back(env->command_history, line);
+        *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = line;
         char *second_cmd = delimiter + 3; // ; cmd2
-        vector_push_back(env->command_history, line);
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
         last_exit_status = command_line_exe(env, second_cmd);
@@ -258,7 +263,7 @@ int command_line_exe(const shell_env *env, char *line) {
 // built in commands
 // no need to print success
 int helper_change_directory(const char *path) {
-    debug_print("Function: Helper CD");
+    // debug_print("Function: Helper CD");
     // try to chdir then check result
     if (chdir(path) != 0) {
         // failed check which error
@@ -282,7 +287,7 @@ int helper_change_directory(const char *path) {
 }
 
 int helper_history(const shell_env *env) {
-    debug_print("Function: Helper History");
+    // debug_print("Function: Helper History");
     for (size_t i = 0; i < vector_size(env->command_history); ++i) {
         char *str = (char *) vector_get(env->command_history, i);
         if (!str) {
@@ -295,7 +300,7 @@ int helper_history(const shell_env *env) {
 }
 
 int helper_n(const shell_env *env, int n) {
-    debug_print("Function: helper_n");
+    // debug_print("Function: helper_n");
     // printf("%d\n", n);
     if (n < 0 || n >= (int) vector_size(env->command_history)) {
         print_invalid_index();
@@ -307,7 +312,7 @@ int helper_n(const shell_env *env, int n) {
 }
 
 int helper_prefix(const shell_env *env, const char *prefix) {
-    debug_print("Function: helper_prefix");
+    // debug_print("Function: helper_prefix");
     int found = 0;
     char *command_to_execute = NULL;
 
