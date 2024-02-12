@@ -170,7 +170,7 @@ void execute_script(shell_env *env) {
 }
 
 void catch_sigint(int signum) {
-
+    // does nothing
 }
 
 void erase_last_if_no_match(vector *vec, const char *line) {
