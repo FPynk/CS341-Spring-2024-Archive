@@ -16,10 +16,10 @@
 
 // debug print
 void debug_print(const char *msg) {
-    #ifdef DEBUG
-    printf("DEBUG: %s\n", msg);
-    fflush(stdout);
-    #endif
+    // #ifdef DEBUG
+    // printf("DEBUG: %s\n", msg);
+    // fflush(stdout);
+    // #endif
 }
 
 typedef struct process {
@@ -159,6 +159,7 @@ void execute_script(shell_env *env) {
         if (line[read - 1] == '\n') {
             line[read - 1] = '\0';
         }
+        print_command(line);
         int status = command_logical_operators(env, line);
         if (status == 1 && *(env->exit_flag) == 1) {
             break;
@@ -355,16 +356,23 @@ int helper_prefix(const shell_env *env, const char *prefix) {
     int found = 0;
     char *command_to_execute = NULL;
 
-    // iterate in reverse order
-    for (int i = vector_size(env->command_history) - 1; i >= 0; --i) {
-        char *command_str = (char *) vector_get(env->command_history, i);
-
-        // Check command starts with prefix
-        if (strncmp(command_str, prefix, strlen(prefix)) == 0) {
+    if (prefix[0] == '\0') {
+        // If prefix is empty, use the last command in the history, if available
+        if (vector_size(env->command_history) > 0) {
+            command_to_execute = (char *) vector_get(env->command_history, vector_size(env->command_history) - 1);
             found = 1;
-            command_to_execute = command_str; // possible memory error here
-            debug_print("Command found, exe");
-            break;
+        }
+    } else {
+        // Iterate in reverse order to find a command starting with the prefix
+        for (int i = vector_size(env->command_history) - 1; i >= 0; --i) {
+            char *command_str = (char *) vector_get(env->command_history, i);
+
+            // Check if command starts with prefix
+            if (strncmp(command_str, prefix, strlen(prefix)) == 0) {
+                found = 1;
+                command_to_execute = command_str;
+                break;
+            }
         }
     }
 
@@ -423,6 +431,10 @@ int helper_external_command(const shell_env *env, const char *line) {
                 return -1;
             }
         } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+        if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
+            // The child process exited with EXIT_FAILURE, indicating execvp failed
+            return -1;
+        }
     }
     return 0;
 }
