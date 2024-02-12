@@ -77,9 +77,15 @@ void parse_arguments(int argc, char * argv[], shell_env *env) {
                 env->history_file_path = strdup(optarg);
                 break;
             default:
-                fprintf(stderr, "Usage: %s [-f script_file] [-h history_file]\n", argv[0]);
+                debug_print("default case parse");
+                print_usage();
                 exit(EXIT_FAILURE);
         }
+    }
+    
+    if (optind < argc) {
+        print_usage();
+        exit(EXIT_FAILURE);
     }
 }
 // load history from file into env
@@ -232,11 +238,11 @@ int command_logical_operators(const shell_env *env, char *line) {
         }
         debug_print("Should not be here");
     // ; operator
-    } else if ((delimiter = strstr(line, " ; ")) != NULL) {
+    } else if ((delimiter = strstr(line, "; ")) != NULL) {
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = line;
-        char *second_cmd = delimiter + 3; // ; cmd2
+        char *second_cmd = delimiter + 2; // ; cmd2
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
         // TODO EXIT
@@ -390,6 +396,8 @@ int helper_external_command(const shell_env *env, const char *line) {
         return -1;
     } else if (pid == 0) {
         // child process
+        // reset signal SIGINT
+        signal(SIGINT, SIG_DFL);
         // Parse command and arguments
         char *argv[64]; // max 64 arguments
         int argc = 0;
@@ -494,6 +502,7 @@ void helper_exit(const shell_env *env) {
 
 int shell(int argc, char *argv[]) {
     debug_print("Function: shell");
+    signal(SIGINT, catch_sigint);
     shell_env env = {0};
     env.command_history = string_vector_create();
     env.exit_flag = malloc(sizeof(int));
