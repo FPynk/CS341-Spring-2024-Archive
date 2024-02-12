@@ -48,8 +48,10 @@ void load_history(shell_env *env);
 void save_history(shell_env *env);
 void execute_script(shell_env *env);
 void catch_sigint(int signum);
+void erase_last_if_no_match(vector *vec, const char *line);
 
 // built in commands
+int command_logical_operators(const shell_env *env, char *line);
 int command_line_exe(const shell_env *env, char* line);
 int helper_change_directory(const char *path);
 int helper_history(const shell_env *env);
@@ -160,6 +162,67 @@ void execute_script(shell_env *env) {
 
 void catch_sigint(int signum) {
 
+}
+
+void erase_last_if_no_match(vector *vec, const char *line) {
+    if (vector_size(vec) == 0) {
+        // Vector is empty, nothing to do
+        return;
+    }
+
+    char *last_element = (char *) vector_back(vec);
+    // compare the last element with line
+    if (strcmp(last_element, line) != 0) {
+        vector_pop_back(vec);
+    }
+}
+
+// Figure out history saving
+// Figures out logical operator
+int command_logical_operators(const shell_env *env, char *line) {
+    char *delimiter;
+    int last_exit_status = 0;
+
+    // figure out logical operator, assuming only 1 exists
+    // && operator
+    if ((delimiter = strstr(line, " && ")) != NULL) {
+        // split at log operator
+        *delimiter = '\0'; // splits string at logical operator
+        char *first_cmd = line;
+        char *second_cmd = delimiter + 4; // && cmd2
+
+        // Exe and saving to history, remove duplicates
+        vector_push_back(env->command_history, line);
+        last_exit_status = command_line_exe(env, first_cmd);
+        erase_last_if_no_match(env->command_history, line);
+        if (last_exit_status == 0) {
+            last_exit_status = command_line_exe(env, second_cmd);
+            erase_last_if_no_match(env->command_history, line);
+        }
+    // || operator
+    } else if ((delimiter = strstr(line, " || ")) != NULL) {
+        char *first_cmd = line;
+        char *second_cmd = delimiter + 4; // || cmd2
+        vector_push_back(env->command_history, line);
+        last_exit_status = command_line_exe(env, first_cmd);
+        erase_last_if_no_match(env->command_history, line);
+        if (last_exit_status != 0) {
+            last_exit_status = command_line_exe(env, second_cmd);
+            erase_last_if_no_match(env->command_history, line);
+        }
+    // ; operator
+    } else if ((delimiter = strstr(line, " ; ")) != NULL) {
+        char *first_cmd = line;
+        char *second_cmd = delimiter + 3; // ; cmd2
+        vector_push_back(env->command_history, line);
+        last_exit_status = command_line_exe(env, first_cmd);
+        erase_last_if_no_match(env->command_history, line);
+        last_exit_status = command_line_exe(env, second_cmd);
+        erase_last_if_no_match(env->command_history, line);
+    } else {
+        last_exit_status = command_line_exe(env, line);
+    }
+    return last_exit_status;
 }
 
 // Figures out cmd from line and runs it
