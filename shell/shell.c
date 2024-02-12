@@ -32,6 +32,7 @@ typedef struct shell_env {
     size_t initial_history_size;
     char *script_file_path;
     vector *command_history;
+    int *exit_flag;
 } shell_env;
 
 // Helpers
@@ -57,6 +58,7 @@ int helper_change_directory(const char *path);
 int helper_history(const shell_env *env);
 int helper_n(const shell_env *env, int n);
 int helper_prefix(const shell_env *env, const char *prefix);
+void helper_exit(const shell_env *env);
 
 // external commands
 int helper_external_command(const shell_env *env, const char *line);
@@ -152,7 +154,7 @@ void execute_script(shell_env *env) {
             line[read - 1] = '\0';
         }
         int status = command_logical_operators(env, line);
-        if (status == 1) {
+        if (status == 1 && *(env->exit_flag) == 1) {
             break;
         }
     }
@@ -200,6 +202,10 @@ int command_logical_operators(const shell_env *env, char *line) {
         if (last_exit_status == 0) {
             last_exit_status = command_line_exe(env, second_cmd);
             erase_last_if_no_match(env->command_history, line);
+        } else if (last_exit_status == 1 && *(env->exit_flag) == 1) {
+            // Exit first command
+            helper_exit(env);
+            return last_exit_status;
         }
     // || operator
     } else if ((delimiter = strstr(line, " || ")) != NULL) {
@@ -210,10 +216,21 @@ int command_logical_operators(const shell_env *env, char *line) {
         
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
-        if (last_exit_status != 0) {
+        if (last_exit_status == 0) {debug_print("LES is 0");}
+        if (last_exit_status == 1) {debug_print("LES is 1");}
+        if (*(env->exit_flag) == 1) {debug_print("env is 1");}
+        if (last_exit_status == 1 && *(env->exit_flag) == 1) {
+            debug_print("|| Exit");
+            // TODO
+            // Exit first command
+            helper_exit(env);
+            return last_exit_status;
+        } else if (last_exit_status != 0) {
+            debug_print("2nd OR exe");
             last_exit_status = command_line_exe(env, second_cmd);
             erase_last_if_no_match(env->command_history, line);
         }
+        debug_print("Should not be here");
     // ; operator
     } else if ((delimiter = strstr(line, " ; ")) != NULL) {
         vector_push_back(env->command_history, line);
@@ -222,10 +239,21 @@ int command_logical_operators(const shell_env *env, char *line) {
         char *second_cmd = delimiter + 3; // ; cmd2
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
+        // TODO EXIT
+        if (last_exit_status == 1 && *(env->exit_flag) == 1) {
+            helper_exit(env);
+            return last_exit_status;
+        }
+
         last_exit_status = command_line_exe(env, second_cmd);
         erase_last_if_no_match(env->command_history, line);
     } else {
         last_exit_status = command_line_exe(env, line);
+    }
+    // Handling exit
+    if (last_exit_status == 1 && *(env->exit_flag) == 1) {
+            helper_exit(env);
+            return last_exit_status;
     }
     return last_exit_status;
 }
@@ -234,30 +262,34 @@ int command_logical_operators(const shell_env *env, char *line) {
 // Currently only support some built in commands
 int command_line_exe(const shell_env *env, char *line) {
     // figure out command and execute
+    int status = 0;
     if (strncmp(line, "cd", 2) == 0) {
-        helper_change_directory(line + 3);
+        status = helper_change_directory(line + 3);
         vector_push_back(env->command_history, line);
     } else if (strncmp(line, "!history", 8) == 0) {
         // not stored in hist
-        helper_history(env);
+        status = helper_history(env);
     } else  if (line[0] == '#') {
         int n = atoi(line + 1);
         // not stored in hist, store cmd this calls
-        helper_n(env, n);
+        status = helper_n(env, n);
     } else if (line[0] == '!') {
         // not stored in hist, store cmd this calls
-        helper_prefix(env, line + 1);
+        status = helper_prefix(env, line + 1);
     } else if (strncmp(line, "exit", 4) == 0) {
-        return 1;
+        // not quite sure what to do here
+        debug_print("Exit called in file");
+        *(env->exit_flag) = 1;
+        status = 1;
     } else {
         // Exe external command
-        helper_external_command(env, line);
+        status = helper_external_command(env, line);
         vector_push_back(env->command_history, line);
         // TODO: figure out wtf to do here
         // printf("Unrecognized command in script: %s\n", line);
         // return -1;
     }
-    return 0;
+    return status;
 }
 
 // built in commands
@@ -279,6 +311,7 @@ int helper_change_directory(const char *path) {
                 debug_print("Can't CD for some reason");
                 break;
         }
+        debug_print("Cd failed");
         return -1; // error return
     }
     // success
@@ -386,6 +419,16 @@ int helper_external_command(const shell_env *env, const char *line) {
     return 0;
 }
 
+void helper_exit(const shell_env *env) {
+    *(env->exit_flag) = 1;
+    if (strstr((char *) vector_back(env->command_history), "exit") != NULL) {
+        // "exit" was found
+        vector_pop_back(env->command_history);
+        debug_print("Exit found, deleting from history");
+        return;
+    }
+    debug_print("Exit NOT found");
+}
 
     // TODO: This is the entry point for your shell.
     // Print a command prompt
@@ -453,6 +496,8 @@ int shell(int argc, char *argv[]) {
     debug_print("Function: shell");
     shell_env env = {0};
     env.command_history = string_vector_create();
+    env.exit_flag = malloc(sizeof(int));
+    *(env.exit_flag) = 0;
     // parse command-line args
     parse_arguments(argc, argv, &env);
 
@@ -467,7 +512,10 @@ int shell(int argc, char *argv[]) {
     }
 
     // TODO: main shell loop
-
+    while (*(env.exit_flag) != 1) {
+        // todo stuff
+        break;
+    }
     //save history upon exit
     if (env.history_file_path) {
         save_history(&env);
@@ -476,6 +524,7 @@ int shell(int argc, char *argv[]) {
     // Cleaning up shell
     free(env.history_file_path);
     free(env.script_file_path);
+    free(env.exit_flag);
     if (env.command_history) {
         vector_destroy(env.command_history);
     }
