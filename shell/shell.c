@@ -512,10 +512,35 @@ int shell(int argc, char *argv[]) {
     }
 
     // TODO: main shell loop
-    
+    char cmd_buffer[1024];
     while (*(env.exit_flag) != 1) {
         // todo stuff
-        break;
+        char cwd[1024];
+        // print prompt and ask for input
+        if (getcwd(cwd, sizeof(cwd)) != NULL) {
+            print_prompt(cwd, getpid());
+            fflush(stdout);
+        } else {
+            perror("getcwd() error");
+            break;
+        }
+        // Checkiung for EOF
+        if (fgets(cmd_buffer, sizeof(cmd_buffer), stdin) == NULL) {
+            if (feof(stdin)) {
+                printf("\n");
+                *(env.exit_flag) = 1;
+            } else {
+                perror("fgets error");
+            }
+            continue;
+        }
+        cmd_buffer[strcspn(cmd_buffer, "\n")] = 0;
+
+        if (strcmp(cmd_buffer, "exit") == 0) {
+            *(env.exit_flag) = 1
+        } else {
+            command_logical_operators(&env, cmd_buffer);
+        }
     }
     //save history upon exit
     if (env.history_file_path) {
