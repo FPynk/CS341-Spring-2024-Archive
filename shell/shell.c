@@ -537,7 +537,7 @@ int shell(int argc, char *argv[]) {
         cmd_buffer[strcspn(cmd_buffer, "\n")] = 0;
 
         if (strcmp(cmd_buffer, "exit") == 0) {
-            *(env.exit_flag) = 1
+            *(env.exit_flag) = 1;
         } else {
             command_logical_operators(&env, cmd_buffer);
         }
