@@ -216,9 +216,9 @@ int command_logical_operators(const shell_env *env, char *line) {
         
         last_exit_status = command_line_exe(env, first_cmd);
         erase_last_if_no_match(env->command_history, line);
-        if (last_exit_status == 0) {debug_print("LES is 0");}
-        if (last_exit_status == 1) {debug_print("LES is 1");}
-        if (*(env->exit_flag) == 1) {debug_print("env is 1");}
+        // if (last_exit_status == 0) {debug_print("LES is 0");}
+        // if (last_exit_status == 1) {debug_print("LES is 1");}
+        // if (*(env->exit_flag) == 1) {debug_print("env is 1");}
         if (last_exit_status == 1 && *(env->exit_flag) == 1) {
             debug_print("|| Exit");
             // TODO
@@ -512,6 +512,7 @@ int shell(int argc, char *argv[]) {
     }
 
     // TODO: main shell loop
+    
     while (*(env.exit_flag) != 1) {
         // todo stuff
         break;
