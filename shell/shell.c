@@ -82,7 +82,7 @@ void parse_arguments(int argc, char * argv[], shell_env *env) {
                 exit(EXIT_FAILURE);
         }
     }
-    
+
     if (optind < argc) {
         print_usage();
         exit(EXIT_FAILURE);
@@ -544,7 +544,10 @@ int shell(int argc, char *argv[]) {
             continue;
         }
         cmd_buffer[strcspn(cmd_buffer, "\n")] = 0;
-
+        // newline case
+        if (cmd_buffer[0] == '\0') {
+            continue;
+        }
         if (strcmp(cmd_buffer, "exit") == 0) {
             *(env.exit_flag) = 1;
         } else {
