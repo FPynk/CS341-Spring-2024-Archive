@@ -201,7 +201,6 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
     // && operator
     if ((delimiter = strstr(whole_command, " && ")) != NULL) {
         // split at log operator
-        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -220,7 +219,6 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
         }
     // || operator
     } else if ((delimiter = strstr(whole_command, " || ")) != NULL) {
-        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -245,7 +243,6 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
         debug_print("Should not be here");
     // ; operator
     } else if ((delimiter = strstr(whole_command, "; ")) != NULL) {
-        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -355,6 +352,7 @@ int helper_n(const shell_env *env, int n) {
         return -1;
     }
     char *command = (char *) vector_get(env->command_history, n);
+    print_command(command);
     int status = command_logical_operators(env, command);
     return status;
 }
@@ -388,6 +386,7 @@ int helper_prefix(const shell_env *env, const char *prefix) {
         print_no_history_match();
         return -1;
     } else {
+        print_command(command_to_execute);
         if (command_logical_operators(env, command_to_execute) != 0) {
             debug_print("Command failed to exe");
             return -1;
