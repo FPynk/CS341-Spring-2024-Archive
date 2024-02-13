@@ -180,27 +180,30 @@ void erase_last_if_no_match(vector *vec, const char *line) {
         return;
     }
 
-    char *last_element = (char *) vector_back(vec);
+    char **last_element = (char **) vector_back(vec);
     // compare the last element with line
-    if (strcmp(last_element, line) != 0) {
+    if (strcmp(*last_element, line) != 0) {
+        debug_print("Line is:");
         debug_print(line);
+        debug_print("Deleting:");
+        debug_print(*last_element);
         vector_pop_back(vec);
     }
 }
 
 // Figure out history saving
 // Figures out logical operator
-int command_logical_operators(const shell_env *env, char *line) {
+int command_logical_operators(const shell_env *env, char *line) { // carful not to edit line
     char *delimiter;
     int last_exit_status = 0;
-
+    char* whole_command = strdup(line); // remember to free
     // figure out logical operator, assuming only 1 exists
     // && operator
-    if ((delimiter = strstr(line, " && ")) != NULL) {
+    if ((delimiter = strstr(whole_command, " && ")) != NULL) {
         // split at log operator
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
-        char *first_cmd = line;
+        char *first_cmd = whole_command;
         char *second_cmd = delimiter + 4; // && cmd2
 
         // Exe and saving to history, remove duplicates
@@ -215,10 +218,10 @@ int command_logical_operators(const shell_env *env, char *line) {
             return last_exit_status;
         }
     // || operator
-    } else if ((delimiter = strstr(line, " || ")) != NULL) {
+    } else if ((delimiter = strstr(whole_command, " || ")) != NULL) {
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
-        char *first_cmd = line;
+        char *first_cmd = whole_command;
         char *second_cmd = delimiter + 4; // || cmd2
         
         last_exit_status = command_line_exe(env, first_cmd);
@@ -239,25 +242,27 @@ int command_logical_operators(const shell_env *env, char *line) {
         }
         debug_print("Should not be here");
     // ; operator
-    } else if ((delimiter = strstr(line, "; ")) != NULL) {
+    } else if ((delimiter = strstr(whole_command, "; ")) != NULL) {
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
-        char *first_cmd = line;
+        char *first_cmd = whole_command;
         char *second_cmd = delimiter + 2; // ; cmd2
         last_exit_status = command_line_exe(env, first_cmd);
-        erase_last_if_no_match(env->command_history, line);
+        erase_last_if_no_match(env->command_history, line); // FIX THIS LATER line is not whole line, check the rest
         // TODO EXIT
         if (last_exit_status == 1 && *(env->exit_flag) == 1) {
             helper_exit(env);
+            free(whole_command);
             return last_exit_status;
         }
 
         last_exit_status = command_line_exe(env, second_cmd);
-        erase_last_if_no_match(env->command_history, line);
+        erase_last_if_no_match(env->command_history, whole_command);
     } else {
         last_exit_status = command_line_exe(env, line);
     }
     // Handling exit
+    free(whole_command);
     if (last_exit_status == 1 && *(env->exit_flag) == 1) {
             helper_exit(env);
             return last_exit_status;
