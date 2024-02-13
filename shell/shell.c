@@ -193,7 +193,7 @@ void erase_last_if_no_match(vector *vec, const char *line) {
 
 // Figure out history saving
 // Figures out logical operator
-int command_logical_operators(const shell_env *env, char *line) { // carful not to edit line
+int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT LINE WILL EDIT VECTOR
     char *delimiter;
     int last_exit_status = 0;
     char* whole_command = strdup(line); // remember to free
