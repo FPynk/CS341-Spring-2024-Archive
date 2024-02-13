@@ -201,6 +201,7 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
     // && operator
     if ((delimiter = strstr(whole_command, " && ")) != NULL) {
         // split at log operator
+        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -219,6 +220,7 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
         }
     // || operator
     } else if ((delimiter = strstr(whole_command, " || ")) != NULL) {
+        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -243,6 +245,7 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
         debug_print("Should not be here");
     // ; operator
     } else if ((delimiter = strstr(whole_command, "; ")) != NULL) {
+        print_command(line);
         vector_push_back(env->command_history, line);
         *delimiter = '\0'; // splits string at logical operator
         char *first_cmd = whole_command;
@@ -395,6 +398,7 @@ int helper_prefix(const shell_env *env, const char *prefix) {
 }
 
 int helper_external_command(const shell_env *env, const char *line) {
+    debug_print("external command");
     pid_t pid;
     int status;
     // prevent double printing due to fork()
@@ -424,7 +428,9 @@ int helper_external_command(const shell_env *env, const char *line) {
 
         // exe cmd
         if (execvp(argv[0], argv) == -1) {
+            debug_print("ext exec failed");
             print_exec_failed(argv[0]);
+            fflush(stdout);
             exit(EXIT_FAILURE);
         }
     } else {
@@ -438,9 +444,15 @@ int helper_external_command(const shell_env *env, const char *line) {
         } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
         if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
             // The child process exited with EXIT_FAILURE, indicating execvp failed
+            debug_print("ext failed");
+            return -1;
+        }
+        if (status != 0) {
+            debug_print("ext failed 2");
             return -1;
         }
     }
+    debug_print("ext success");
     return 0;
 }
 
