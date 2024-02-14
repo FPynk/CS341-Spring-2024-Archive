@@ -105,6 +105,22 @@ void *mini_realloc(void *payload, size_t request_size, const char *filename,
         return NULL;
     }
 
+    // same size 
+    // calc size diff
+    size_t old_size = curr->request_size;
+
+    // Check if old size and new size the same
+    if (old_size == request_size) {
+        return payload;
+    }
+
+    // Minus off if appropriate
+    if (request_size > old_size) {
+        total_memory_requested -= old_size;
+    } else if (old_size > request_size) {
+        total_memory_requested -= request_size;
+    }
+
     // Allocate new mem with increased size
     void *new_payload = mini_malloc(request_size, filename, instruction);
     if (!new_payload) {
@@ -112,10 +128,15 @@ void *mini_realloc(void *payload, size_t request_size, const char *filename,
         return NULL;
     }
 
-    // copy old data to new memory
-    size_t old_size = curr->request_size;
     // 3rd arg: size given is the min of the 2, truncate if new size is smaller
     memcpy(new_payload, payload, old_size < request_size ? old_size : request_size);
+
+    // Adjust free appropriately
+    if (request_size > old_size) {
+        total_memory_freed -= old_size;
+    } else if (old_size > request_size) {
+        total_memory_freed -= request_size;
+    }
 
     //free
     mini_free(payload);
