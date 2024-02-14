@@ -33,7 +33,7 @@ void *mini_malloc(size_t request_size, const char *filename,
     // Case 1: First entry
     if (!head) {
         head = m_data;
-        return (void *) head + 1;
+        return (void *) (head + 1);
     }
     // Must traverse list if not first meta_data entry
     meta_data *curr = head;

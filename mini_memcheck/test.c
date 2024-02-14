@@ -77,7 +77,7 @@ int main(int argc, char *argv[]) {
     mini_free((void *)0x1234); // Attempting to free an invalid pointer
 
     // Finalize
-    // printf("Tests completed. Check the output for correctness.\n");
-    // fflush(stdout);
+    printf("Tests completed. Check the output for correctness.\n");
+    fflush(stdout);
     return 0;
 }
