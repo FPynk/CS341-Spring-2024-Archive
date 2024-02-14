@@ -43,7 +43,23 @@ void *mini_calloc(size_t num_elements, size_t element_size,
                   const char *filename, void *instruction) {
     // your code here
     // update total_memory_requested
-    return NULL;
+    if (num_elements == 0 || element_size == 0) {
+        return NULL; // maybe assert false?
+    }
+
+    // calc total request size
+    size_t total_size = num_elements * element_size;
+
+    // alloc with mini malloc
+    void *user_mem = mini_malloc(total_size, filename, intstruction);
+    if (!user_mem) {
+        perror("mini_calloc faield to allocate memory");
+        return NULL;
+    }
+
+    // zero out memory
+    memset(user_mem, 0, total_size)
+    return user_mem;
 }
 
 void *mini_realloc(void *payload, size_t request_size, const char *filename,
@@ -52,6 +68,8 @@ void *mini_realloc(void *payload, size_t request_size, const char *filename,
     // May need to update head
     // update total_memory_requested
     // Check invalid_addresses
+    
+
     return NULL;
 }
 
