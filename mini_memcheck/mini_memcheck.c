@@ -6,8 +6,15 @@
 #include <stdio.h>
 #include <string.h>
 
+meta_data *head = NULL;
+size_t total_memory_requested = 0;
+size_t total_memory_freed = 0;
+size_t invalid_addresses = 0;
+
 void *mini_malloc(size_t request_size, const char *filename,
                   void *instruction) {
+    // printf("Function: malloc\n");
+    // fflush(stdout);
     // your code here
     // allocate memory for new metadata + data required
     meta_data *m_data = malloc(sizeof(meta_data) + request_size);
@@ -41,6 +48,8 @@ void *mini_malloc(size_t request_size, const char *filename,
 
 void *mini_calloc(size_t num_elements, size_t element_size,
                   const char *filename, void *instruction) {
+    // printf("Function: calloc\n");
+    // fflush(stdout);
     // your code here
     // update total_memory_requested
     if (num_elements == 0 || element_size == 0) {
@@ -79,14 +88,14 @@ void *mini_realloc(void *payload, size_t request_size, const char *filename,
 
     // Find corresponding metadata for payload
     meta_data *curr = head;
-    meta_data *prev = NULL;
+    // meta_data *prev = NULL;
     // iterate and find
     while (curr != NULL) {
         if ((void *) (curr + 1) == payload) {
             break; // found
         }
         // updating pointers
-        prev = curr;
+        // prev = curr;
         curr = curr->next;
     }
 
