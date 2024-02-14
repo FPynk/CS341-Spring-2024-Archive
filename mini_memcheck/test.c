@@ -8,7 +8,61 @@
 #include "mini_memcheck.h"
 #include "mini_memcheck.c"
 
+void bad_free_test() {
+    printf("Running bad_free_test...\n");
+    mini_free((void*)0x12345678);
+    void* ptr = mini_realloc((void*)0x87654321, 100,  "testfile", __builtin_return_address(0));
+    mini_free(ptr); // Attempt to free the realloc'ed invalid pointer, should do nothing
+    void* valid_ptr = mini_malloc(10, "testfile", __builtin_return_address(0));
+    mini_free(valid_ptr);
+    mini_free(valid_ptr); // Invalid double free
+}
+
+void calloc_test() {
+    printf("Running calloc_test...\n");
+    void* ptr1 = mini_calloc(5, sizeof(int), "testfile", __builtin_return_address(0));
+    void* ptr2 = mini_calloc(10, sizeof(char), "testfile", __builtin_return_address(0));
+    mini_free(ptr1);
+    mini_free(ptr2);
+}
+
+void full_test() {
+    printf("Running full_test...\n");
+    void* ptr1 = mini_malloc(100, "testfile", __builtin_return_address(0));
+    mini_free(ptr1);
+    void* ptr2 = mini_malloc(200, "testfile", __builtin_return_address(0)); // Not freed -> memory leak
+    void* ptr3 = mini_realloc(NULL, 50, "testfile", __builtin_return_address(0));
+    mini_free(ptr3);
+    mini_free((void*)0xABCDEF); // Invalid free
+}
+
+void leak_test() {
+    printf("Running leak_test...\n");
+    void* ptr1 = mini_malloc(50, "testfile", __builtin_return_address(0));
+    void* ptr2 = mini_malloc(100, "testfile", __builtin_return_address(0)); // Not freed -> memory leak
+}
+
+void no_leak_test() {
+    printf("Running no_leak_test...\n");
+    void* ptr1 = mini_malloc(100, "testfile", __builtin_return_address(0));
+    mini_free(ptr1);
+    void* ptr2 = mini_calloc(1, 100, "testfile", __builtin_return_address(0));
+    mini_free(ptr2);
+    void* ptr3 = mini_malloc(50, "testfile", __builtin_return_address(0));
+    void* ptr4 = mini_realloc(ptr3, 100, "testfile", __builtin_return_address(0));
+    mini_free(ptr4);
+}
+
+void realloc_test() {
+    printf("Running realloc_test...\n");
+    void* ptr = mini_malloc(50, "testfile", __builtin_return_address(0));
+    ptr = mini_realloc(ptr, 100, "testfile", __builtin_return_address(0));
+    ptr = mini_realloc(ptr, 25, "testfile", __builtin_return_address(0));
+    mini_free(ptr);
+}
+
 int main(int argc, char *argv[]) {
+    setvbuf(stdout, NULL, _IONBF, 0);
     // Test mini_malloc and mini_free
     // printf("Testing mini_malloc\n");
     // fflush(stdout);
@@ -77,7 +131,18 @@ int main(int argc, char *argv[]) {
     mini_free((void *)0x1234); // Attempting to free an invalid pointer
 
     // Finalize
-    printf("Tests completed. Check the output for correctness.\n");
+    printf("Tests completed. PT1\n");
     fflush(stdout);
+
+    // More testing
+    bad_free_test();
+    calloc_test();
+    full_test(); // will have 1 leak
+    leak_test(); // will have 2 leaks
+    no_leak_test();
+    realloc_test();
+    printf("Tests completed. PT2. Expect 2 leaks\n");
+    fflush(stdout);
+
     return 0;
 }
