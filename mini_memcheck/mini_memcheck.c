@@ -12,7 +12,7 @@ void *mini_malloc(size_t request_size, const char *filename,
     // allocate memory for new metadata + data required
     meta_data *m_data = malloc(sizeof(meta_data) + request_size);
     // malloc status
-    if (m_data) {
+    if (!m_data) {
         perror("mini_malloc m_data failed");
         return NULL;
     }
@@ -30,12 +30,13 @@ void *mini_malloc(size_t request_size, const char *filename,
     }
     // Must traverse list if not first meta_data entry
     meta_data *curr = head;
-    while (curr) {
+    while (curr->next) {
         curr = curr->next;
     }
-    
+    // append new meta data at end of the list
+    curr->next = m_data;
 
-    return NULL;
+    return (void *) (m_data + 1);
 }
 
 void *mini_calloc(size_t num_elements, size_t element_size,
