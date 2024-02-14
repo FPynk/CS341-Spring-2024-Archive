@@ -72,9 +72,21 @@ void realloc_test2() {
     free(ptr1);
 }
 
+void realloc_test3() {
+    //printf("Running realloc_test...\n");
+    // void* ptr = mini_malloc(40, "testfile", __builtin_return_address(0));
+    // ptr = mini_realloc(ptr, 60, "testfile", __builtin_return_address(0));
+    // mini_free(ptr);
+    // void* ptr1 = malloc(0);
+    void *ptr1 = realloc(NULL, 60);
+    //void* ptr2 = realloc(ptr1, 60);
+    free(ptr1);
+}
+
+
 int main(int argc, char *argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
-    if (1) {
+    if (0) {
         // Test mini_malloc and mini_free
         // printf("Testing mini_malloc\n");
         // fflush(stdout);
@@ -159,6 +171,7 @@ int main(int argc, char *argv[]) {
     // fflush(stdout);
 
     // realloc testing
-    realloc_test2();
+    // realloc_test2();
+    realloc_test3();
     return 0;
 }
