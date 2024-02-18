@@ -435,7 +435,7 @@ int helper_external_command(const shell_env *env, const char *line) {
         // reset signal SIGINT
         signal(SIGINT, SIG_DFL);
         // Parse command and arguments
-        // print_command_executed(getpid());
+        print_command_executed(getpid());
         char *argv[64]; // max 64 arguments
         int argc = 0;
         char *token = strtok(strdup(command), " "); // strtok modifies string
@@ -455,7 +455,6 @@ int helper_external_command(const shell_env *env, const char *line) {
     } else {
         // parent process
         // wait for child to finish
-        print_command_executed(pid); // HOPEFULLY DOESNT BREAK ANYTHING
         // foreground
         if (!background) {
             do {
