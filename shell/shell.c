@@ -422,52 +422,52 @@ int helper_prefix(const shell_env *env, const char *prefix) {
     }
 }
 
-// int helper_ps(const shell_env *env) {
-//     // Need these things
-//     // PID: The pid of the process
-//     // NLWP: The number of threads currently being used in the process
-//     // VSZ: The program size (virtual memory size) of the process, in kilobytes (1 kilobyte = 1024 bytes)
-//     // STAT: The state of the process
-//     // START: The start time of the process. You will want to add the boot time of the computer (btime), and start time of the process (starttime) to calculate this. Make sure you are careful while converting from various formats - the man pages for procfs have helpful tips.
-//     // TIME: The amount of cpu time that the process has been executed for. This includes time the process has been scheduled in user mode (utime) and kernel mode (stime).
-//     // COMMAND: The command that executed the process
+int helper_ps(const shell_env *env) {
+    // Need these things
+    // PID: The pid of the process
+    // NLWP: The number of threads currently being used in the process
+    // VSZ: The program size (virtual memory size) of the process, in kilobytes (1 kilobyte = 1024 bytes)
+    // STAT: The state of the process
+    // START: The start time of the process. You will want to add the boot time of the computer (btime), and start time of the process (starttime) to calculate this. Make sure you are careful while converting from various formats - the man pages for procfs have helpful tips.
+    // TIME: The amount of cpu time that the process has been executed for. This includes time the process has been scheduled in user mode (utime) and kernel mode (stime).
+    // COMMAND: The command that executed the process
 
-//     // open /proc directory, contians sub dirs for each running process, named by PID
-//     DIR *d;
-//     struct dirent *dir;
-//     d = opendir("/proc");
-//     if (!d) {
-//         // failed to open 
-//         debug_print("Failed to open /proc directory");
-//         return -1;
-//     }
+    // open /proc directory, contians sub dirs for each running process, named by PID
+    DIR *d;
+    struct dirent *dir;
+    d = opendir("/proc");
+    if (!d) {
+        // failed to open 
+        debug_print("Failed to open /proc directory");
+        return -1;
+    }
 
-//     // print header for process info table
-//     print_process_info_header();
-//     // iterate thru dirs till end
-//     while ((dir = readdir(d)) != NULL) {
-//         // we only care about dirs and check if its a PID
-//         if (dir->d_type == DT_DIR && is_pid_folder(dir->d_name)) {
-//             // store path of stat file
-//             char path[256];
-//             // write path with format to path
-//             snprintf(path, sizeof(path), "/proc/%s/stat", dir->d_name);
-//             // open file and check
-//             FILE *f = fopen(path, "r");
-//             if (!f) continue; // if fail, skip and continue to next one
+    // print header for process info table
+    print_process_info_header();
+    // iterate thru dirs till end
+    while ((dir = readdir(d)) != NULL) {
+        // we only care about dirs and check if its a PID
+        if (dir->d_type == DT_DIR && is_pid_folder(dir->d_name)) {
+            // store path of stat file
+            char path[256];
+            // write path with format to path
+            snprintf(path, sizeof(path), "/proc/%s/stat", dir->d_name);
+            // open file and check
+            FILE *f = fopen(path, "r");
+            if (!f) continue; // if fail, skip and continue to next one
 
-//             process_info p;
-//             unsigned int utime;
-//             unsigned int stime;
-//             long int n_threads;
-//             // parse
-//             fscanf(f,
-//                    "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %ld",
-//                    &p.pid, &p.state, &p.utime);
+            process_info p;
+            unsigned long int utime;
+            unsigned long int stime;
+            unsigned long long int starttime;
+            // parse
+            fscanf(f,
+                   "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %*ld",
+                   &p.pid, &p.state, &utime, &stime, &p->nthreads, &start_time, &p.vsize);
 
-//         }
-//     }
-// }
+        }
+    }
+}
 
 int helper_external_command(const shell_env *env, const char *line) {
     debug_print("external command");
