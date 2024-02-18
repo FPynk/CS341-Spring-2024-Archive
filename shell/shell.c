@@ -26,6 +26,11 @@ void debug_print(const char *msg) {
 typedef struct process {
     char *command;
     pid_t pid;
+    int nlwp;
+    unsigned long vsz;
+    char stat;
+    char *startTime;
+    char *cpuTime;
 } process;
 
 typedef struct shell_env {
@@ -52,6 +57,7 @@ void execute_script(shell_env *env);
 void catch_sigint(int signum);
 void erase_last_if_no_match(vector *vec, const char *line);
 void reap_zombie_processes();
+int is_pid_folder(const char *name);
 
 // built in commands
 int command_logical_operators(const shell_env *env, char *line);
@@ -61,6 +67,7 @@ int helper_history(const shell_env *env);
 int helper_n(const shell_env *env, int n);
 int helper_prefix(const shell_env *env, const char *prefix);
 void helper_exit(const shell_env *env);
+int helper_ps(const shell_env *env);
 
 // external commands
 int is_background_command(const char *cmd);
@@ -199,6 +206,14 @@ void reap_zombie_processes() {
     while(waitpid(-1, &status, WNOHANG) > 0) {
         // reap zombie processes w/o blocking
     }
+}
+// Checks if folder is a PID
+int is_pid_folder(const char *name) {
+    // check all chars are numbers
+    for (int i = 0; name[i]; ++i) {
+        if (name[i] < '0' || name[i] > '9') return 0;
+    }
+    return 1;
 }
 
 // Figure out history saving
