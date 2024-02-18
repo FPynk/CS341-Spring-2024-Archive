@@ -455,7 +455,7 @@ int helper_external_command(const shell_env *env, const char *line) {
     } else {
         // parent process
         // wait for child to finish
-        print_command_executed(pid);
+        print_command_executed(pid); // HOPEFULLY DOESNT BREAK ANYTHING
         // foreground
         if (!background) {
             do {
