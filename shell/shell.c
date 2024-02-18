@@ -50,6 +50,7 @@ void save_history(shell_env *env);
 void execute_script(shell_env *env);
 void catch_sigint(int signum);
 void erase_last_if_no_match(vector *vec, const char *line);
+void reap_zombie_processes();
 
 // built in commands
 int command_logical_operators(const shell_env *env, char *line);
@@ -189,6 +190,13 @@ void erase_last_if_no_match(vector *vec, const char *line) {
         debug_print("Deleting:");
         debug_print(*last_element);
         vector_pop_back(vec);
+    }
+}
+
+void reap_zombie_processes() {
+    int status;
+    while(waitpid(-1, &status, WNOHANG) > 0) {
+        // reap zombie processes w/o blocking
     }
 }
 
@@ -401,6 +409,14 @@ int helper_external_command(const shell_env *env, const char *line) {
     debug_print("external command");
     pid_t pid;
     int status;
+    char *command = strdup(line); // remember to free
+    // Handling background processes 
+    int background = is_background_command(line);
+    // removing & from last part
+    if (background) {
+        char *ampersand = strrchr(command, '&');
+        if (ampersand) *ampersand = '\0';
+    }
     // prevent double printing due to fork()
     fflush(stdout);
     
@@ -410,6 +426,7 @@ int helper_external_command(const shell_env *env, const char *line) {
     if (pid == -1) {
         // fork failed
         print_fork_failed();
+        free(command);
         return -1;
     } else if (pid == 0) {
         // child process
@@ -419,7 +436,7 @@ int helper_external_command(const shell_env *env, const char *line) {
         print_command_executed(getpid());
         char *argv[64]; // max 64 arguments
         int argc = 0;
-        char *token = strtok(strdup(line), " "); // strtok modifies string
+        char *token = strtok(strdup(command), " "); // strtok modifies string
         while (token != NULL && argc < 63) {
             argv[argc++] = token;
             token = strtok(NULL, " ");
@@ -436,23 +453,33 @@ int helper_external_command(const shell_env *env, const char *line) {
     } else {
         // parent process
         // wait for child to finish
-        do {
-            if (waitpid(pid, &status, 0) == -1) {
-                print_wait_failed();
+        // foreground
+        if (!background) {
+            do {
+                if (waitpid(pid, &status, 0) == -1) {
+                    print_wait_failed();
+                    free(command);
+                    return -1;
+                }
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+            if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
+                // The child process exited with EXIT_FAILURE, indicating execvp failed
+                debug_print("ext failed");
+                free(command);
                 return -1;
             }
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
-        if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
-            // The child process exited with EXIT_FAILURE, indicating execvp failed
-            debug_print("ext failed");
-            return -1;
-        }
-        if (status != 0) {
-            debug_print("ext failed 2");
-            return -1;
+            if (status != 0) {
+                debug_print("ext failed 2");
+                free(command);
+                return -1;
+            }
+        // Background
+        } else {
+            debug_print("Background ext process");
         }
     }
     debug_print("ext success");
+    free(command);
     return 0;
 }
 
@@ -500,6 +527,7 @@ int shell(int argc, char *argv[]) {
     // TODO: main shell loop
     char cmd_buffer[1024];
     while (*(env.exit_flag) != 1) {
+        reap_zombie_processes();
         // todo stuff
         char cwd[1024];
         // print prompt and ask for input
@@ -530,6 +558,7 @@ int shell(int argc, char *argv[]) {
         } else {
             command_logical_operators(&env, cmd_buffer);
         }
+        reap_zombie_processes();
     }
     //save history upon exit
     if (env.history_file_path) {
