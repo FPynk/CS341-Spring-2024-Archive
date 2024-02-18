@@ -415,6 +415,7 @@ int helper_external_command(const shell_env *env, const char *line) {
     int background = is_background_command(line);
     // removing & from last part
     if (background) {
+        debug_print("background command detected");
         char *ampersand = strrchr(command, '&');
         if (ampersand) *ampersand = '\0';
     }
@@ -434,7 +435,7 @@ int helper_external_command(const shell_env *env, const char *line) {
         // reset signal SIGINT
         signal(SIGINT, SIG_DFL);
         // Parse command and arguments
-        print_command_executed(getpid());
+        // print_command_executed(getpid());
         char *argv[64]; // max 64 arguments
         int argc = 0;
         char *token = strtok(strdup(command), " "); // strtok modifies string
@@ -454,6 +455,7 @@ int helper_external_command(const shell_env *env, const char *line) {
     } else {
         // parent process
         // wait for child to finish
+        print_command_executed(pid);
         // foreground
         if (!background) {
             do {
@@ -496,6 +498,7 @@ void helper_exit(const shell_env *env) {
 }
 
 int is_background_command(const char *cmd) {
+    debug_print("Function: is_background_command");
     const char *end = cmd + strlen(cmd) - 1; // grab last char
     // skip trailing whitespace
     while (end > cmd && isspace((unsigned char) *end)) {
