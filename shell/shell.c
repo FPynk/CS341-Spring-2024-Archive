@@ -8,6 +8,7 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <ctype.h>
 
 #include "format.h"
 #include "shell.h"
