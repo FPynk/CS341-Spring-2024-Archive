@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <ctype.h>
+#include <dirent.h>
 
 #include "format.h"
 #include "shell.h"
@@ -419,6 +420,10 @@ int helper_prefix(const shell_env *env, const char *prefix) {
         debug_print("Command Success");
         return 0;
     }
+}
+
+int helper_ps(const shell_env *env) {
+    DIR *d;
 }
 
 int helper_external_command(const shell_env *env, const char *line) {
