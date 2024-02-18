@@ -61,6 +61,7 @@ int helper_prefix(const shell_env *env, const char *prefix);
 void helper_exit(const shell_env *env);
 
 // external commands
+int is_background_command(const char *cmd);
 int helper_external_command(const shell_env *env, const char *line);
 
 // function protos
@@ -464,6 +465,16 @@ void helper_exit(const shell_env *env) {
         return;
     }
     debug_print("Exit NOT found");
+}
+
+int is_background_command(const char *cmd) {
+    const char *end = cmd + strlen(cmd) - 1; // grab last char
+    // skip trailing whitespace
+    while (end > cmd && isspace((unsigned char) *end)) {
+        --end;
+    }
+    // check last non space char is &
+    return *end == '&';
 }
 
     // TODO: This is the entry point for your shell.
