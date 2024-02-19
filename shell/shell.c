@@ -584,7 +584,7 @@ int helper_ps(const shell_env *env) {
             // conversions to proper format
             p.start_str = convert_start_time(start_time);
             p.time_str = convert_cpu_time(utime, stime);
-
+            p.vsize /= 1024;
             // parse comm file
             char comm[256];
             snprintf(path, sizeof(path), "/proc/%s/comm", dir->d_name);
