@@ -2,6 +2,7 @@
  * shell
  * CS 341 - Spring 2024
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -59,6 +60,9 @@ void catch_sigint(int signum);
 void erase_last_if_no_match(vector *vec, const char *line);
 void reap_zombie_processes();
 int is_pid_folder(const char *name);
+unsigned long long getSystemBootTime();
+char * convert_start_time(unsigned long long int start_time);
+char * convert_cpu_time(unsigned long int utime, unsigned long int stime);
 
 // built in commands
 int command_logical_operators(const shell_env *env, char *line);
@@ -217,6 +221,59 @@ int is_pid_folder(const char *name) {
     return 1;
 }
 
+unsigned long long getSystemBootTime() {
+    FILE *f_stat = fopen("/proc/stat", "r");
+    if (!f_stat) return 0;
+
+    char buffer[256];
+    unsigned long long btime = 0;
+    // read line by line, find btime and grab data using scanf then break
+    while (fgets(buffer, sizeof(buffer), f_stat)) {
+        if (strncmp(buffer, "btime", 5) == 0) {
+            sscanf(buffer, "btime %llu", &btime);
+            break;
+        }
+    }
+    fclose(f_stat);
+    return btime;
+}
+// converts start time (btime + starttime) from jiffies to HH:MM format
+char * convert_start_time(unsigned long long int start_time) {
+    // system clock ticks per sec
+    long hz = sysconf(_SC_CLK_TCK);
+    // get boot time in sec since epoch
+    unsigned long long btime = getSystemBootTime();
+    // calc proc start time in seconds since epoch
+    unsigned long long start_seconds = btime + (start_time / hz);
+
+    // calc local time for start_seocnds
+    struct tm *start_tm = localtime((time_t *) &start_seconds);
+
+    // allocate buffer for HH:MM format: 5 chars + 1 null
+    char *buffer = malloc(6 * sizeof(char));
+    if (!buffer) return NULL;
+    // format the time into HH:MM
+    snprintf(buffer, 6, "%02d:%02d", start_tm->tm_hour, start_tm->tm_min);
+    return buffer;
+}
+
+char * convert_cpu_time(unsigned long int utime, unsigned long int stime) {
+    // clock ticks
+    long hz = sysconf(_SC_CLK_TCK);
+    // convert user time and sys time form clock ticks to secs
+    unsigned long total_time_seconds = (utime + stime)/ hz;
+    // calc mins and secs
+    unsigned long minutes = total_time_seconds / 60;
+    unsigned long seconds = total_time_seconds % 60;
+    // Buffer for M:SS 
+    char *buffer = malloc(5 * sizeof(char));
+    if (!buffer) return NULL;
+
+    // format time
+    snprintf(buffer, 5, "%lu:%02lu", minutes, seconds);
+    return buffer;
+}
+
 // Figure out history saving
 // Figures out logical operator
 int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT LINE WILL EDIT VECTOR
@@ -314,6 +371,8 @@ int command_line_exe(const shell_env *env, char *line) {
     } else if (line[0] == '!') {
         // not stored in hist, store cmd this calls
         status = helper_prefix(env, line + 1);
+    } else if (strncmp(line, "ps", 2) == 0) {
+        status = helper_ps(env);
     } else if (strncmp(line, "exit", 4) == 0) {
         // not quite sure what to do here
         debug_print("Exit called in file");
@@ -459,14 +518,45 @@ int helper_ps(const shell_env *env) {
             process_info p;
             unsigned long int utime;
             unsigned long int stime;
-            unsigned long long int starttime;
-            // parse
+            unsigned long long int start_time;
+            // parse stat file
             fscanf(f,
                    "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %*ld",
-                   &p.pid, &p.state, &utime, &stime, &p->nthreads, &start_time, &p.vsize);
+                   &p.pid, &p.state, &utime, &stime, &p.nthreads, &start_time, &p.vsize);
+            fclose(f);
+            // conversions to proper format
+            p.start_str = convert_start_time(start_time);
+            p.time_str = convert_cpu_time(utime, stime);
 
+            // parse comm file
+            char comm[256];
+            snprintf(path, sizeof(path), "/proc/%s/comm", dir->d_name);
+            FILE *f_comm = fopen(path, "r");
+            if (f_comm) {
+                if (fgets(comm, sizeof(comm), f_comm)) {
+                    // remove newline
+                    comm[strcspn(comm, "\n")] = 0;
+                    p.command = strdup(comm);
+                    fclose(f_comm);
+                    if (p.command == NULL) continue; // fail mem alloc
+                }
+            } else {
+                debug_print("Failed to open comm file");
+                p.command = strdup("Unknown"); // Fallback command name
+                if (p.command == NULL) continue; // fail mem alloc
+            }
+
+            // print
+            print_process_info(&p);
+
+            // cleanup
+            free(p.start_str);
+            free(p.time_str);
+            free(p.command);
         }
     }
+    closedir(d);
+    return 0;
 }
 
 int helper_external_command(const shell_env *env, const char *line) {
