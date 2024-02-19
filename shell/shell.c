@@ -373,6 +373,7 @@ int command_line_exe(const shell_env *env, char *line) {
         status = helper_prefix(env, line + 1);
     } else if (strncmp(line, "ps", 2) == 0) {
         status = helper_ps(env);
+        vector_push_back(env->command_history, line);
     } else if (strncmp(line, "exit", 4) == 0) {
         // not quite sure what to do here
         debug_print("Exit called in file");
