@@ -78,6 +78,11 @@ int helper_ps(const shell_env *env);
 int is_background_command(const char *cmd);
 int helper_external_command(const shell_env *env, const char *line);
 
+// redirection
+int output_redirection(const shell_env *env, const char *line);
+int append_redirection(const shell_env *env, const char *line);
+int input_redirection(const shell_env *env, const char *line);
+
 // function protos
 // Parse and handle -f and -h arguments
 void parse_arguments(int argc, char * argv[], shell_env *env) {
@@ -253,7 +258,8 @@ char * convert_start_time(unsigned long long int start_time) {
     char *buffer = malloc(6 * sizeof(char));
     if (!buffer) return NULL;
     // format the time into HH:MM
-    snprintf(buffer, 6, "%02d:%02d", start_tm->tm_hour, start_tm->tm_min);
+    // snprintf(buffer, 6, "%02d:%02d", start_tm->tm_hour, start_tm->tm_min);
+    time_struct_to_string(buffer, 6, start_tm);
     return buffer;
 }
 
@@ -270,7 +276,8 @@ char * convert_cpu_time(unsigned long int utime, unsigned long int stime) {
     if (!buffer) return NULL;
 
     // format time
-    snprintf(buffer, 5, "%lu:%02lu", minutes, seconds);
+    // snprintf(buffer, 5, "%lu:%02lu", minutes, seconds);
+    execution_time_to_string(buffer, 5, minutes, seconds);
     return buffer;
 }
 
@@ -341,6 +348,16 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
 
         last_exit_status = command_line_exe(env, second_cmd);
         erase_last_if_no_match(env->command_history, whole_command);
+    // NOTE: Only external commands for the following redirection
+    // > OUTPUT
+    } else if ((delimiter = strstr(whole_command, " > ")) != NULL) {
+        last_exit_status = output_redirection(env, line);
+    // >> APPEND
+    } else if ((delimiter = strstr(whole_command, " >> ")) != NULL) { 
+        last_exit_status = append_redirection(env, line);
+    // < INPUT
+    } else if ((delimiter = strstr(whole_command, " < ")) != NULL) {
+        last_exit_status = input_redirection(env, line);
     } else {
         last_exit_status = command_line_exe(env, line);
     }
@@ -659,6 +676,52 @@ int is_background_command(const char *cmd) {
     }
     // check last non space char is &
     return *end == '&';
+}
+
+int output_redirection(const shell_env *env, const char *line) {
+    // split the line ito command and filename
+    char *command = strdup(line);
+    char *delimiter = strstr(command, " > ");
+    if (delimiter == NULL) {
+        free(command);
+        return -1;      // we should not reach this
+    }
+    *delimiter = '\0';
+    char *filename = delimiter + 3; // skip " > "
+    // external command customised for output
+    pid_t pid = fork();
+    if (pid == -1) {
+        // fork fails
+        print_fork_failed();
+        free(command);
+        return -1;
+    } else if (pid == 0) {
+        signal(SIGINT, SIG_DFL);
+        // open file and handle errors
+        int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Check last arg if it breaks test cases
+        if (fd == -1) {
+            print_redirection_file_error();
+            exit(EXIT_FAILURE);
+        }
+
+        // redirect stdout to file
+        // dup2 closes stdout, duplicates fd to it
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+            debug_print("Error output dup2");
+            exit(EXIT_FAILURE);
+        }
+        // no longer needed
+        close(fd);
+
+        // execute command
+        char *argv[] = 
+    }
+}
+int append_redirection(const shell_env *env, const char *line) {
+
+}
+int input_redirection(const shell_env *env, const char *line) {
+
 }
 
 int shell(int argc, char *argv[]) {
