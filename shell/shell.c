@@ -43,6 +43,7 @@ typedef struct shell_env {
     vector *command_history;
     int *exit_flag;
     vector *background_PIDs;
+    vector *background_commands;
 } shell_env;
 
 // Helpers
@@ -76,6 +77,9 @@ int helper_n(const shell_env *env, int n);
 int helper_prefix(const shell_env *env, const char *prefix);
 void helper_exit(const shell_env *env);
 int helper_ps(const shell_env *env);
+int helper_kill(const shell_env *env, const char *line);
+int helper_stop(const shell_env *env, const char *line);
+int helper_cont(const shell_env *env, const char *line);
 
 // external commands
 int is_background_command(const char *cmd);
@@ -231,6 +235,7 @@ void reap_background_processes(shell_env *env) {
         if (waitpid(pid, &status, WNOHANG) > 0) {
             // Process has finished, perform any additional handling
             vector_erase(env->background_PIDs, i);
+            vector_erase(env->background_commands, i);
         } else {
             // Process has not finished, move to next
             ++i;
@@ -421,6 +426,15 @@ int command_line_exe(const shell_env *env, char *line) {
         debug_print("Exit called in file");
         *(env->exit_flag) = 1;
         status = 1;
+    } else if (strncmp(line, "kill", 4) == 0) {
+        status =  helper_kill(env, line);
+        vector_push_back(env->command_history, line);
+    } else if (strncmp(line, "stop", 4) == 0) {
+        status =  helper_stop(env, line);
+        vector_push_back(env->command_history, line);
+    } else if (strncmp(line, "cont", 4) == 0) {
+        status =  helper_cont(env, line);
+        vector_push_back(env->command_history, line);
     } else {
         // Exe external command
         status = helper_external_command(env, line);
@@ -602,6 +616,116 @@ int helper_ps(const shell_env *env) {
     return 0;
 }
 
+int helper_kill(const shell_env *env, const char *line) {
+    // grab pid
+    pid_t pid;
+    // try and get pid
+    int num_parsed = sscanf(line, "kill %d", &pid);
+    if (num_parsed < 1) {
+        print_invalid_command(line);
+        return -1;
+    }
+    // try and kill
+    if (kill(pid, SIGKILL) == -1) {
+        print_no_process_found(pid);
+        return -1;
+    }
+    // Retrieve the command associated with the PID, ensuring index is in bounds
+    size_t index = 0;
+    int pid_found = 0;
+    for (index = 0; index < vector_size(env->background_PIDs); ++index) {
+        pid_t *stored_pid = (pid_t *)vector_get(env->background_PIDs, index);
+        if (*stored_pid == pid) {
+            pid_found = 1;
+            break;
+        }
+    }
+    if (!pid_found) {
+        debug_print("pid missing from vector");
+        return -1;
+    }
+    char *command = NULL;
+    if (index < vector_size(env->background_commands)) {
+        command = (char *) vector_get(env->background_commands, index);
+    }
+    command = command ? command : "unknown"; // Fallback in case of NULL
+    print_killed_process(pid, command);
+    // Remove the PID and its corresponding command from vectors
+    vector_erase(env->background_PIDs, index);
+    vector_erase(env->background_commands, index);
+    return 0;
+}
+
+int helper_stop(const shell_env *env, const char *line) {
+    pid_t pid;
+    int num_parsed = sscanf(line, "stop %d", &pid);
+    if (num_parsed < 1) {
+        print_invalid_command(line);
+        return -1;
+    }
+
+    if (kill(pid, SIGSTOP) == -1) {
+        print_no_process_found(pid);
+        return -1;
+    }
+    // Retrieve the command associated with the PID, ensuring index is in bounds
+    size_t index = 0;
+    int pid_found = 0;
+    for (index = 0; index < vector_size(env->background_PIDs); ++index) {
+        pid_t *stored_pid = (pid_t *)vector_get(env->background_PIDs, index);
+        if (*stored_pid == pid) {
+            pid_found = 1;
+            break;
+        }
+    }
+    if (!pid_found) {
+        debug_print("pid missing from vector");
+        return -1;
+    }
+    char *command = NULL;
+    if (index < vector_size(env->background_commands)) {
+        command = (char *) vector_get(env->background_commands, index);
+    }
+    command = command ? command : "unknown"; // Fallback in case of NULL
+    print_stopped_process(pid, command);
+    return 0;
+}
+
+int helper_cont(const shell_env *env, const char *line) {
+    pid_t pid;
+    int num_parsed = sscanf(line, "cont %d", &pid);
+    if (num_parsed < 1) {
+        print_invalid_command(line);
+        return -1;
+    }
+
+    if (kill(pid, SIGCONT) == -1) {
+        print_no_process_found(pid);
+        return -1;
+    }
+    // Retrieve the command associated with the PID, ensuring index is in bounds
+    size_t index = 0;
+    int pid_found = 0;
+    for (index = 0; index < vector_size(env->background_PIDs); ++index) {
+        pid_t *stored_pid = (pid_t *)vector_get(env->background_PIDs, index);
+        if (*stored_pid == pid) {
+            pid_found = 1;
+            break;
+        }
+    }
+    if (!pid_found) {
+        debug_print("pid missing from vector");
+        return -1;
+    }
+    char *command = NULL;
+    if (index < vector_size(env->background_commands)) {
+        command = (char *) vector_get(env->background_commands, index);
+    }
+    command = command ? command : "unknown"; // Fallback in case of NULL
+    print_continued_process(pid, command);
+    return 0;
+}
+
 int helper_external_command(const shell_env *env, const char *line) {
     debug_print("external command");
     pid_t pid;
@@ -630,7 +754,9 @@ int helper_external_command(const shell_env *env, const char *line) {
         // child process
         // reset signal SIGINT/ set new process grp if background
         if (background) {
-            setpgid(0, 0);
+            if(setpgid(0, 0) != 0) {
+                print_setpgid_failed();
+            }
         } else {
             signal(SIGINT, SIG_DFL);
         }
@@ -678,6 +804,9 @@ int helper_external_command(const shell_env *env, const char *line) {
         // Background
         } else {
             vector_push_back(env->background_PIDs, &pid);
+            char *tmp = strdup(line);
+            vector_push_back(env->background_commands, tmp); // check for mem errors
+            free(tmp);
             debug_print("Background ext process");
         }
     }
@@ -804,6 +933,9 @@ int output_redirection(const shell_env *env, const char *line) {
         // Background
         } else {
             vector_push_back(env->background_PIDs, &pid);
+            char *tmp = strdup(line);
+            vector_push_back(env->background_commands, tmp); // check for mem errors
+            free(tmp);
             debug_print("Background ext process");
         }
     }
@@ -907,6 +1039,9 @@ int append_redirection(const shell_env *env, const char *line) {
         // Background
         } else {
             vector_push_back(env->background_PIDs, &pid);
+            char *tmp = strdup(line);
+            vector_push_back(env->background_commands, tmp); // check for mem errors
+            free(tmp);
             debug_print("Background ext process");
         }
     }
@@ -1014,6 +1149,9 @@ int input_redirection(const shell_env *env, const char *line) {
         // Background
         } else {
             vector_push_back(env->background_PIDs, &pid);
+            char *tmp = strdup(line);
+            vector_push_back(env->background_commands, tmp); // check for mem errors
+            free(tmp);
             debug_print("input ext process");
         }
     }
@@ -1022,39 +1160,13 @@ int input_redirection(const shell_env *env, const char *line) {
     return 0;
 }
 
-// Handle EOF/  ctrl D / exit for background
-// exit
-// The shell will exit once it receives the exit command or once it receives an EOF 
-// at the beginning of the line. An EOF is sent by typing Ctrl-D from your terminal. 
-// It is also sent automatically from a script file (as used with the -f flag) once 
-// the end of the file is reached. This should cause your shell to exit with exit status 0.
-// If there are currently stopped or running background processes when your shell receives 
-// exit or Control-D (EOF), you should kill and cleanup each of those children before 
-// your shell exits. You do not need to worry about SIGTERM.
-// :warning: If you don’t handle EOF or exit to exit, you will fail many of our test cases!
-// :warning: Do not store exit in history!
-
-// Catching Ctrl+C
-// Usually when we do Ctrl+C, the current running program will exit. However, we want the shell 
-// itself to ignore the Ctrl+C signal (SIGINT) - instead, it should kill the currently running 
-// foreground process (if one exists) using SIGINT. One way to do this is to use the kill 
-// function on the foreground process PID when SIGINT is caught in your shell. However, 
-// when a signal is sent to a process, it is sent to all processes in its process group. 
-// In this assignment, the shell process is the leader of a process group consisting of 
-// all processes that are fork‘d from it. So another way to properly handle Ctrl+C is to 
-// simply do nothing inside the handler for SIGINT if it is caught in the shell - your shell 
-// will continue running, but SIGINT will automatically propagate to the foreground process 
-// and kill it.
-// However, since we want this signal to be sent to only the foreground process, but not to any 
-// backgrounded processes, you will want to use setpgid to assign each background process to its 
-// own process group after forking. (Note: think about who should be making the setpgid call and why).
-
 int shell(int argc, char *argv[]) {
     debug_print("Function: shell");
     signal(SIGINT, catch_sigint);
     shell_env env = {0};
     env.command_history = string_vector_create();
     env.background_PIDs = int_vector_create();
+    env.background_commands = string_vector_create();
     env.exit_flag = malloc(sizeof(int));
     *(env.exit_flag) = 0;
     // parse command-line args
@@ -1121,6 +1233,9 @@ int shell(int argc, char *argv[]) {
     }
     if (env.background_PIDs) {
         vector_destroy(env.background_PIDs);
+    }
+    if (env.background_commands) {
+        vector_destroy(env.background_commands);
     }
     return 0;
 }
