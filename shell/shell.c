@@ -628,8 +628,12 @@ int helper_external_command(const shell_env *env, const char *line) {
         return -1;
     } else if (pid == 0) {
         // child process
-        // reset signal SIGINT
-        signal(SIGINT, SIG_DFL);
+        // reset signal SIGINT/ set new process grp if background
+        if (background) {
+            setpgid(0, 0);
+        } else {
+            signal(SIGINT, SIG_DFL);
+        }
         // Parse command and arguments
         print_command_executed(getpid());
         char *argv[64]; // max 64 arguments
@@ -736,7 +740,11 @@ int output_redirection(const shell_env *env, const char *line) {
         free(command);
         return -1;
     } else if (pid == 0) {
-        signal(SIGINT, SIG_DFL);
+        if (background) {
+            setpgid(0, 0);
+        } else {
+            signal(SIGINT, SIG_DFL);
+        }
         print_command_executed(getpid());
         // open file and handle errors
         int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Check last arg if it breaks test cases
@@ -795,6 +803,7 @@ int output_redirection(const shell_env *env, const char *line) {
             }
         // Background
         } else {
+            vector_push_back(env->background_PIDs, &pid);
             debug_print("Background ext process");
         }
     }
@@ -834,7 +843,11 @@ int append_redirection(const shell_env *env, const char *line) {
         free(command);
         return -1;
     } else if (pid == 0) {
-        signal(SIGINT, SIG_DFL);
+        if (background) {
+            setpgid(0, 0);
+        } else {
+            signal(SIGINT, SIG_DFL);
+        }
         print_command_executed(getpid());
         // open file and handle errors
         int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0644); // Check last arg if it breaks test cases
@@ -893,6 +906,7 @@ int append_redirection(const shell_env *env, const char *line) {
             }
         // Background
         } else {
+            vector_push_back(env->background_PIDs, &pid);
             debug_print("Background ext process");
         }
     }
@@ -941,7 +955,11 @@ int input_redirection(const shell_env *env, const char *line) {
         return -1;
     } else if (pid == 0) {
         // child
-        signal(SIGINT, SIG_DFL);
+        if (background) {
+            setpgid(0, 0);
+        } else {
+            signal(SIGINT, SIG_DFL);
+        }
         print_command_executed(getpid());
         
         // redirect stdout to file
@@ -995,6 +1013,7 @@ int input_redirection(const shell_env *env, const char *line) {
             }
         // Background
         } else {
+            vector_push_back(env->background_PIDs, &pid);
             debug_print("input ext process");
         }
     }
