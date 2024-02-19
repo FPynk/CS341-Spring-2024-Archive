@@ -351,12 +351,15 @@ int command_logical_operators(const shell_env *env, char *line) { // DO NOT EDIT
     // NOTE: Only external commands for the following redirection
     // > OUTPUT
     } else if ((delimiter = strstr(whole_command, " > ")) != NULL) {
+        vector_push_back(env->command_history, line);
         last_exit_status = output_redirection(env, line);
     // >> APPEND
-    } else if ((delimiter = strstr(whole_command, " >> ")) != NULL) { 
+    } else if ((delimiter = strstr(whole_command, " >> ")) != NULL) {
+        vector_push_back(env->command_history, line);
         last_exit_status = append_redirection(env, line);
     // < INPUT
     } else if ((delimiter = strstr(whole_command, " < ")) != NULL) {
+        vector_push_back(env->command_history, line);
         last_exit_status = input_redirection(env, line);
     } else {
         last_exit_status = command_line_exe(env, line);
@@ -679,7 +682,10 @@ int is_background_command(const char *cmd) {
 }
 
 int output_redirection(const shell_env *env, const char *line) {
+    debug_print("output external command");
     // split the line ito command and filename
+    pid_t pid;
+    int status;
     char *command = strdup(line);
     char *delimiter = strstr(command, " > ");
     if (delimiter == NULL) {
@@ -688,8 +694,19 @@ int output_redirection(const shell_env *env, const char *line) {
     }
     *delimiter = '\0';
     char *filename = delimiter + 3; // skip " > "
+    // Handling background processes 
+    int background = is_background_command(command);
+    // removing & from last part
+    if (background) {
+        debug_print("output background command detected");
+        char *ampersand = strrchr(command, '&');
+        if (ampersand) *ampersand = '\0';
+    }
+    // prevent double printing due to fork()
+    fflush(stdout);
+
     // external command customised for output
-    pid_t pid = fork();
+    pid = fork();
     if (pid == -1) {
         // fork fails
         print_fork_failed();
@@ -697,6 +714,7 @@ int output_redirection(const shell_env *env, const char *line) {
         return -1;
     } else if (pid == 0) {
         signal(SIGINT, SIG_DFL);
+        print_command_executed(getpid());
         // open file and handle errors
         int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644); // Check last arg if it breaks test cases
         if (fd == -1) {
@@ -714,8 +732,52 @@ int output_redirection(const shell_env *env, const char *line) {
         close(fd);
 
         // execute command
-        char *argv[] = 
+        char *argv[64]; // max 64 arguments
+        int argc = 0;
+        char *token = strtok(strdup(command), " "); // strtok modifies string
+        while (token != NULL && argc < 63) {
+            argv[argc++] = token;
+            token = strtok(NULL, " ");
+        }
+        argv[argc] = NULL;
+        // exe cmd
+        if (execvp(argv[0], argv) == -1) {
+            debug_print("ext exec failed");
+            print_exec_failed(argv[0]);
+            fflush(stdout);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        // parent process
+        // wait for child to finish
+        // foreground
+        if (!background) {
+            do {
+                if (waitpid(pid, &status, 0) == -1) {
+                    print_wait_failed();
+                    free(command);
+                    return -1;
+                }
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+            if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
+                // The child process exited with EXIT_FAILURE, indicating execvp failed
+                debug_print("ext failed");
+                free(command);
+                return -1;
+            }
+            if (status != 0) {
+                debug_print("ext failed 2");
+                free(command);
+                return -1;
+            }
+        // Background
+        } else {
+            debug_print("Background ext process");
+        }
     }
+    debug_print("output ext success");
+    free(command);
+    return 0;
 }
 int append_redirection(const shell_env *env, const char *line) {
 
