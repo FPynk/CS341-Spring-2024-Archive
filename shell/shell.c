@@ -225,9 +225,9 @@ void reap_background_processes(shell_env *env) {
     pid_t pid;
     int status;
     // cycle thru all and clean up
-    for (int i = 0; i < vector_size(env->background_PIDs); ++i) {
+    for (size_t i = 0; i < vector_size(env->background_PIDs); ++i) {
         pid_t* pid_ptr = vector_get(env->background_PIDs, i); // may need to free
-        pid_t pid = *pid_ptr;
+        pid = *pid_ptr;
         if (waitpid(pid, &status, WNOHANG) > 0) {
             // Process has finished, perform any additional handling
             vector_erase(env->background_PIDs, i);
@@ -1054,7 +1054,7 @@ int shell(int argc, char *argv[]) {
     // TODO: main shell loop
     char cmd_buffer[1024];
     while (*(env.exit_flag) != 1) {
-        reap_zombie_processes(&env);
+        reap_zombie_processes();
         // todo stuff
         char cwd[1024];
         // print prompt and ask for input
@@ -1085,7 +1085,7 @@ int shell(int argc, char *argv[]) {
         } else {
             command_logical_operators(&env, cmd_buffer);
         }
-        reap_zombie_processes(&env);
+        reap_zombie_processes();
     }
     reap_background_processes(&env);
     //save history upon exit
