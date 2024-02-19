@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 
 #include "format.h"
 #include "shell.h"
@@ -41,6 +42,7 @@ typedef struct shell_env {
     char *script_file_path;
     vector *command_history;
     int *exit_flag;
+    vector *background_PIDs;
 } shell_env;
 
 // Helpers
@@ -59,6 +61,7 @@ void execute_script(shell_env *env);
 void catch_sigint(int signum);
 void erase_last_if_no_match(vector *vec, const char *line);
 void reap_zombie_processes();
+void reap_background_processes(shell_env *env);
 int is_pid_folder(const char *name);
 unsigned long long getSystemBootTime();
 char * convert_start_time(unsigned long long int start_time);
@@ -217,6 +220,25 @@ void reap_zombie_processes() {
         // reap zombie processes w/o blocking
     }
 }
+
+void reap_background_processes(shell_env *env) {
+    pid_t pid;
+    int status;
+    // cycle thru all and clean up
+    for (int i = 0; i < vector_size(env->background_PIDs); ++i) {
+        pid_t* pid_ptr = vector_get(env->background_PIDs, i); // may need to free
+        pid_t pid = *pid_ptr;
+        if (waitpid(pid, &status, WNOHANG) > 0) {
+            // Process has finished, perform any additional handling
+            vector_erase(env->background_PIDs, i);
+        } else {
+            // Process has not finished, move to next
+            ++i;
+        }
+    }
+
+}
+
 // Checks if folder is a PID
 int is_pid_folder(const char *name) {
     // check all chars are numbers
@@ -651,6 +673,7 @@ int helper_external_command(const shell_env *env, const char *line) {
             }
         // Background
         } else {
+            vector_push_back(env->background_PIDs, &pid);
             debug_print("Background ext process");
         }
     }
@@ -780,17 +803,239 @@ int output_redirection(const shell_env *env, const char *line) {
     return 0;
 }
 int append_redirection(const shell_env *env, const char *line) {
+    debug_print("append external command");
+    // split the line ito command and filename
+    pid_t pid;
+    int status;
+    char *command = strdup(line);
+    char *delimiter = strstr(command, " >> ");
+    if (delimiter == NULL) {
+        free(command);
+        return -1;      // we should not reach this
+    }
+    *delimiter = '\0';
+    char *filename = delimiter + 4; // skip " >> "
+    // Handling background processes 
+    int background = is_background_command(command);
+    // removing & from last part
+    if (background) {
+        debug_print("append background command detected");
+        char *ampersand = strrchr(command, '&');
+        if (ampersand) *ampersand = '\0';
+    }
+    // prevent double printing due to fork()
+    fflush(stdout);
 
+    // external command customised for output
+    pid = fork();
+    if (pid == -1) {
+        // fork fails
+        print_fork_failed();
+        free(command);
+        return -1;
+    } else if (pid == 0) {
+        signal(SIGINT, SIG_DFL);
+        print_command_executed(getpid());
+        // open file and handle errors
+        int fd = open(filename, O_WRONLY | O_CREAT | O_APPEND, 0644); // Check last arg if it breaks test cases
+        if (fd == -1) {
+            print_redirection_file_error();
+            exit(EXIT_FAILURE);
+        }
+
+        // redirect stdout to file
+        // dup2 closes stdout, duplicates fd to it
+        if (dup2(fd, STDOUT_FILENO) == -1) {
+            debug_print("Error output dup2");
+            exit(EXIT_FAILURE);
+        }
+        // no longer needed
+        close(fd);
+
+        // execute command
+        char *argv[64]; // max 64 arguments
+        int argc = 0;
+        char *token = strtok(strdup(command), " "); // strtok modifies string
+        while (token != NULL && argc < 63) {
+            argv[argc++] = token;
+            token = strtok(NULL, " ");
+        }
+        argv[argc] = NULL;
+        // exe cmd
+        if (execvp(argv[0], argv) == -1) {
+            debug_print("ext exec failed");
+            print_exec_failed(argv[0]);
+            fflush(stdout);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        // parent process
+        // wait for child to finish
+        // foreground
+        if (!background) {
+            do {
+                if (waitpid(pid, &status, 0) == -1) {
+                    print_wait_failed();
+                    free(command);
+                    return -1;
+                }
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+            if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
+                // The child process exited with EXIT_FAILURE, indicating execvp failed
+                debug_print("ext failed");
+                free(command);
+                return -1;
+            }
+            if (status != 0) {
+                debug_print("ext failed 2");
+                free(command);
+                return -1;
+            }
+        // Background
+        } else {
+            debug_print("Background ext process");
+        }
+    }
+    debug_print("append ext success");
+    free(command);
+    return 0;
 }
 int input_redirection(const shell_env *env, const char *line) {
+        debug_print("input external command");
+    // split the line ito command and filename
+    pid_t pid;
+    int status;
+    char *command = strdup(line);
+    char *delimiter = strstr(command, " < ");
+    if (delimiter == NULL) {
+        free(command);
+        return -1;      // we should not reach this
+    }
+    *delimiter = '\0';
+    char *filename = delimiter + 3; // skip " < "
+    // Handling background processes 
+    int background = is_background_command(command);
+    // removing & from last part
+    if (background) {
+        debug_print("input background command detected");
+        char *ampersand = strrchr(command, '&');
+        if (ampersand) *ampersand = '\0';
+    }
+    // open input file and handle errors
+    int fd = open(filename, O_RDONLY); // Check last arg if it breaks test cases
+    if (fd == -1) {
+        print_redirection_file_error();
+        free(command);
+        return -1;
+    }
 
+    // prevent double printing due to fork()
+    fflush(stdout);
+
+    // external command customised for output
+    pid = fork();
+    if (pid == -1) {
+        // fork fails
+        print_fork_failed();
+        free(command);
+        return -1;
+    } else if (pid == 0) {
+        // child
+        signal(SIGINT, SIG_DFL);
+        print_command_executed(getpid());
+        
+        // redirect stdout to file
+        // dup2 closes stdin, duplicates fd to it
+        if (dup2(fd, STDIN_FILENO) == -1) {
+            debug_print("Error input dup2");
+            exit(EXIT_FAILURE);
+        }
+        // no longer needed
+        close(fd);
+
+        // execute command
+        char *argv[64]; // max 64 arguments
+        int argc = 0;
+        char *token = strtok(strdup(command), " "); // strtok modifies string
+        while (token != NULL && argc < 63) {
+            argv[argc++] = token;
+            token = strtok(NULL, " ");
+        }
+        argv[argc] = NULL;
+        // exe cmd
+        if (execvp(argv[0], argv) == -1) {
+            debug_print("ext exec failed");
+            print_exec_failed(argv[0]);
+            fflush(stdout);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        // parent process
+        // wait for child to finish
+        close(fd);
+        // foreground
+        if (!background) {
+            do {
+                if (waitpid(pid, &status, 0) == -1) {
+                    print_wait_failed();
+                    free(command);
+                    return -1;
+                }
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); // Check if child hasn't exited normally and child wasnt killed by signal
+            if (WIFEXITED(status) && WEXITSTATUS(status) == EXIT_FAILURE) {
+                // The child process exited with EXIT_FAILURE, indicating execvp failed
+                debug_print("ext failed");
+                free(command);
+                return -1;
+            }
+            if (status != 0) {
+                debug_print("ext failed 2");
+                free(command);
+                return -1;
+            }
+        // Background
+        } else {
+            debug_print("input ext process");
+        }
+    }
+    debug_print("input ext success");
+    free(command);
+    return 0;
 }
+
+// Handle EOF/  ctrl D / exit for background
+// exit
+// The shell will exit once it receives the exit command or once it receives an EOF 
+// at the beginning of the line. An EOF is sent by typing Ctrl-D from your terminal. 
+// It is also sent automatically from a script file (as used with the -f flag) once 
+// the end of the file is reached. This should cause your shell to exit with exit status 0.
+// If there are currently stopped or running background processes when your shell receives 
+// exit or Control-D (EOF), you should kill and cleanup each of those children before 
+// your shell exits. You do not need to worry about SIGTERM.
+// :warning: If you don’t handle EOF or exit to exit, you will fail many of our test cases!
+// :warning: Do not store exit in history!
+
+// Catching Ctrl+C
+// Usually when we do Ctrl+C, the current running program will exit. However, we want the shell 
+// itself to ignore the Ctrl+C signal (SIGINT) - instead, it should kill the currently running 
+// foreground process (if one exists) using SIGINT. One way to do this is to use the kill 
+// function on the foreground process PID when SIGINT is caught in your shell. However, 
+// when a signal is sent to a process, it is sent to all processes in its process group. 
+// In this assignment, the shell process is the leader of a process group consisting of 
+// all processes that are fork‘d from it. So another way to properly handle Ctrl+C is to 
+// simply do nothing inside the handler for SIGINT if it is caught in the shell - your shell 
+// will continue running, but SIGINT will automatically propagate to the foreground process 
+// and kill it.
+// However, since we want this signal to be sent to only the foreground process, but not to any 
+// backgrounded processes, you will want to use setpgid to assign each background process to its 
+// own process group after forking. (Note: think about who should be making the setpgid call and why).
 
 int shell(int argc, char *argv[]) {
     debug_print("Function: shell");
     signal(SIGINT, catch_sigint);
     shell_env env = {0};
     env.command_history = string_vector_create();
+    env.background_PIDs = int_vector_create();
     env.exit_flag = malloc(sizeof(int));
     *(env.exit_flag) = 0;
     // parse command-line args
@@ -809,7 +1054,7 @@ int shell(int argc, char *argv[]) {
     // TODO: main shell loop
     char cmd_buffer[1024];
     while (*(env.exit_flag) != 1) {
-        reap_zombie_processes();
+        reap_zombie_processes(&env);
         // todo stuff
         char cwd[1024];
         // print prompt and ask for input
@@ -840,8 +1085,9 @@ int shell(int argc, char *argv[]) {
         } else {
             command_logical_operators(&env, cmd_buffer);
         }
-        reap_zombie_processes();
+        reap_zombie_processes(&env);
     }
+    reap_background_processes(&env);
     //save history upon exit
     if (env.history_file_path) {
         save_history(&env);
@@ -853,6 +1099,9 @@ int shell(int argc, char *argv[]) {
     free(env.exit_flag);
     if (env.command_history) {
         vector_destroy(env.command_history);
+    }
+    if (env.background_PIDs) {
+        vector_destroy(env.background_PIDs);
     }
     return 0;
 }
