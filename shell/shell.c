@@ -550,7 +550,7 @@ int helper_ps(const shell_env *env) {
 
     // open /proc directory, contians sub dirs for each running process, named by PID
     DIR *d;
-    struct dirent *dir;
+    // struct dirent *dir;
     d = opendir("/proc");
     if (!d) {
         // failed to open 
@@ -560,58 +560,110 @@ int helper_ps(const shell_env *env) {
 
     // print header for process info table
     print_process_info_header();
-    // iterate thru dirs till end
-    while ((dir = readdir(d)) != NULL) {
-        // we only care about dirs and check if its a PID
-        if (dir->d_type == DT_DIR && is_pid_folder(dir->d_name)) {
-            // store path of stat file
-            char path[256];
-            // write path with format to path
-            snprintf(path, sizeof(path), "/proc/%s/stat", dir->d_name);
-            // open file and check
-            FILE *f = fopen(path, "r");
-            if (!f) continue; // if fail, skip and continue to next one
+    // iterate thru process vec till end
+    for (size_t i = 0; i < vector_size(env->background_PIDs); ++i) {
+        pid_t pid = *(pid_t *) vector_get(env->background_PIDs, i);
+        char *line = (char *) vector_get(env->background_commands, i);
+        // store path of stat file
+        char path[256];
+        // write path with format to path
+        snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+        // open file and check
+        FILE *f = fopen(path, "r");
+        if (!f) continue; // if fail, skip and continue to next one
 
-            process_info p;
-            unsigned long int utime;
-            unsigned long int stime;
-            unsigned long long int start_time;
-            // parse stat file
-            fscanf(f,
-                   "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %*ld",
-                   &p.pid, &p.state, &utime, &stime, &p.nthreads, &start_time, &p.vsize);
-            fclose(f);
-            // conversions to proper format
-            p.start_str = convert_start_time(start_time);
-            p.time_str = convert_cpu_time(utime, stime);
-            p.vsize /= 1024;
-            // parse comm file
-            char comm[256];
-            snprintf(path, sizeof(path), "/proc/%s/comm", dir->d_name);
-            FILE *f_comm = fopen(path, "r");
-            if (f_comm) {
-                if (fgets(comm, sizeof(comm), f_comm)) {
-                    // remove newline
-                    comm[strcspn(comm, "\n")] = 0;
-                    p.command = strdup(comm);
-                    fclose(f_comm);
-                    if (p.command == NULL) continue; // fail mem alloc
-                }
-            } else {
-                debug_print("Failed to open comm file");
-                p.command = strdup("Unknown"); // Fallback command name
-                if (p.command == NULL) continue; // fail mem alloc
-            }
+        process_info p;
+        unsigned long int utime;
+        unsigned long int stime;
+        unsigned long long int start_time;
+        // parse stat file
+        fscanf(f,
+                "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %*ld",
+                &p.pid, &p.state, &utime, &stime, &p.nthreads, &start_time, &p.vsize);
+        fclose(f);
+        // conversions to proper format
+        p.start_str = convert_start_time(start_time);
+        p.time_str = convert_cpu_time(utime, stime);
+        p.vsize /= 1024;
+        // parse comm file
+        // char comm[256];
+        // snprintf(path, sizeof(path), "/proc/%d/comm", pid);
+        // FILE *f_comm = fopen(path, "r");
+        // if (f_comm) {
+        //     if (fgets(comm, sizeof(comm), f_comm)) {
+        //         // remove newline
+        //         comm[strcspn(comm, "\n")] = 0;
+        //         p.command = strdup(comm);
+        //         fclose(f_comm);
+        //         if (p.command == NULL) continue; // fail mem alloc
+        //     }
+        // } else {
+        //     debug_print("Failed to open comm file");
+        //     p.command = strdup("Unknown"); // Fallback command name
+        //     if (p.command == NULL) continue; // fail mem alloc
+        // }
+        p.command = strdup(line);
+        // print
+        print_process_info(&p);
 
-            // print
-            print_process_info(&p);
-
-            // cleanup
-            free(p.start_str);
-            free(p.time_str);
-            free(p.command);
-        }
+        // cleanup
+        free(p.start_str);
+        free(p.time_str);
+        free(p.command);
     }
+
+    // iterate thru dirs till end
+    // while ((dir = readdir(d)) != NULL) {
+    //     // we only care about dirs and check if its a PID
+    //     if (dir->d_type == DT_DIR && is_pid_folder(dir->d_name)) {
+    //         // store path of stat file
+    //         char path[256];
+    //         // write path with format to path
+    //         snprintf(path, sizeof(path), "/proc/%s/stat", dir->d_name);
+    //         // open file and check
+    //         FILE *f = fopen(path, "r");
+    //         if (!f) continue; // if fail, skip and continue to next one
+
+    //         process_info p;
+    //         unsigned long int utime;
+    //         unsigned long int stime;
+    //         unsigned long long int start_time;
+    //         // parse stat file
+    //         fscanf(f,
+    //                "%d %*s %c %*d %*d %*d %*d %*d %*u %*lu %*lu %*lu %*lu %lu %lu %*ld %*ld %*ld %*ld %ld %*ld %llu %lu %*ld",
+    //                &p.pid, &p.state, &utime, &stime, &p.nthreads, &start_time, &p.vsize);
+    //         fclose(f);
+    //         // conversions to proper format
+    //         p.start_str = convert_start_time(start_time);
+    //         p.time_str = convert_cpu_time(utime, stime);
+    //         p.vsize /= 1024;
+    //         // parse comm file
+    //         char comm[256];
+    //         snprintf(path, sizeof(path), "/proc/%s/comm", dir->d_name);
+    //         FILE *f_comm = fopen(path, "r");
+    //         if (f_comm) {
+    //             if (fgets(comm, sizeof(comm), f_comm)) {
+    //                 // remove newline
+    //                 comm[strcspn(comm, "\n")] = 0;
+    //                 p.command = strdup(comm);
+    //                 fclose(f_comm);
+    //                 if (p.command == NULL) continue; // fail mem alloc
+    //             }
+    //         } else {
+    //             debug_print("Failed to open comm file");
+    //             p.command = strdup("Unknown"); // Fallback command name
+    //             if (p.command == NULL) continue; // fail mem alloc
+    //         }
+
+    //         // print
+    //         print_process_info(&p);
+
+    //         // cleanup
+    //         free(p.start_str);
+    //         free(p.time_str);
+    //         free(p.command);
+    //     }
+    // }
     closedir(d);
     return 0;
 }
@@ -1169,6 +1221,10 @@ int shell(int argc, char *argv[]) {
     env.background_commands = string_vector_create();
     env.exit_flag = malloc(sizeof(int));
     *(env.exit_flag) = 0;
+    pid_t pid = getpid();
+    vector_push_back(env.background_PIDs, &pid);
+    vector_push_back(env.background_commands, argv[0]);
+
     // parse command-line args
     parse_arguments(argc, argv, &env);
 
