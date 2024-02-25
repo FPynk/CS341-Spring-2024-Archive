@@ -111,8 +111,27 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        fit->is_free = 0;
         // TODO: Splitting
+        // check spltting is possible
+        size_t remaining_size = fit->size - size - META_SIZE;
+        // check there's some space left
+        if (remaining_size > sizeof(meta_data)) {
+            // split block
+            meta_data *new_block = (meta_data *) ((char *) (fit + 1) + size);
+            new_block->size = remaining_size;
+            new_block->is_free = 1;
+            new_block->next = fit->next;
+            new_block->prev = fit;
+
+            // fix linking
+            if (fit->next) {
+                fit->next->prev = new_block;
+            }
+            fit->size = size;
+            fit->next = new_block;
+        }
+
+        fit->is_free = 0;
         return (void *) (fit + 1);
     }
 
@@ -167,7 +186,23 @@ void free(void *ptr) {
     // mark block as free
     block->is_free = 1;
 
-    // coalescing/ separate list for free blocks here, add ltr
+    // coalescing with next block if possible
+    if (block->next && block->next->is_free) {
+        block->size += block->next->size + META_SIZE;
+        block->next = block->next->next;
+        // relinking next next block to this block, if it exists
+        if (block->next) {
+            block->next->prev = block;
+        }
+    }
+    // coalesce with previous blocks if possible
+    if (block->prev && block->prev->is_free) {
+        block->prev->size += block->size + META_SIZE;
+        block->prev->next = block->next;
+        if (block->next) {
+            block->next->prev = block->prev;
+        }
+    }
 }
 
 /**
@@ -234,20 +269,21 @@ void *realloc(void *ptr, size_t size) {
     if (block->size == size) {
         return ptr;
     }
+    // Determine size to copy
+    size_t copy_size = block->size < size ? block->size : size;
 
-    // Alloc new block fo the requested size
+    // realloc within same block, shifted order of ops
+    // free old block
+    free(ptr);
+    // Alloc new block for the requested size
     void *new_ptr = malloc(size);
     if (!new_ptr) {
         return NULL;
     }
-
-    // Determine size to copy
-    size_t copy_size = block->size < size ? block->size : size;
-
     // copy mem
-    memcpy(new_ptr, ptr, copy_size);
-    // free old block
-    free(ptr);
+    if (new_ptr != ptr) {
+        memcpy(new_ptr, ptr, copy_size);
+    }
 
     return new_ptr;
 }
