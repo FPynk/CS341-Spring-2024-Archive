@@ -7,6 +7,23 @@
 #include <string.h>
 #include <unistd.h>
 
+typedef struct meta_data {
+    size_t size;
+    int is_free;
+    struct meta_data *next;
+    struct meta_data *prev;
+#ifdef DEBUG
+    unsigned long magic;    
+#endif
+} meta_data;
+
+// Global vars
+static meta_data* head = NULL;
+static size_t total_memory_requested = 0;
+static size_t total_memory_freed = 0;
+
+#define META_SIZE sizeof(meta_data)
+
 /**
  * Allocate space for array in memory
  *
@@ -32,7 +49,23 @@
  */
 void *calloc(size_t num, size_t size) {
     // implement calloc!
-    return NULL;
+    // calc total memory required
+    size_t total_size = num * size;
+    if (total_size == 0) {
+        return NULL;
+    }
+
+    // use malloc to alloc mem
+    void *ptr = malloc(total_size);
+    if (ptr == NULL) {
+        // alloc failed
+        return NULL;
+    }
+
+    // initialise alloced mem to 0
+    memset(ptr, 0, total_size);
+    
+    return ptr;
 }
 
 /**
@@ -58,7 +91,51 @@ void *calloc(size_t num, size_t size) {
  */
 void *malloc(size_t size) {
     // implement malloc!
-    return NULL;
+    if (size <= 0) {
+        return NULL;
+    }
+    total_memory_requested += size;
+
+    // traverse to end and allocate
+    meta_data *curr = head;
+    meta_data *fit = NULL; // first fit free block
+
+    // traverse to end of list or first fit free block
+    while (curr != NULL) {
+        if (curr->is_free && curr->size >= size) {
+            fit = curr;
+            break;
+        }
+        curr = curr->next;
+    }
+
+    // Reuse block
+    if (fit) {
+        fit->is_free = 0;
+        // TODO: Splitting
+        return (void *) (fit + 1);
+    }
+
+    // alocate mem block including space for meta data
+    size_t total_size = size + META_SIZE;
+    meta_data *block = sbrk(total_size);
+    if (block == (void *) -1) {
+        return NULL; // Allocation failed
+    }
+
+    // Initialise metadata
+    block->size = size;
+    block->is_free = 0;
+    block->next = NULL;
+    block->prev = curr;
+
+    if (curr) {
+        curr->next = block; // connect last block to newly alloced block
+    } else {
+        head = block;   // First block
+    }
+
+    return (void *) (block + 1);
 }
 
 /**
@@ -79,6 +156,18 @@ void *malloc(size_t size) {
  */
 void free(void *ptr) {
     // implement free!
+    // NULL ptr checking
+    if (!ptr) {
+        return;
+    }
+
+    // get metadata, cast ptr to char * then minus META_SIZE
+    meta_data *block = (meta_data *) ((char *) ptr - META_SIZE);
+    total_memory_freed += block->size;
+    // mark block as free
+    block->is_free = 1;
+
+    // coalescing/ separate list for free blocks here, add ltr
 }
 
 /**
@@ -128,5 +217,37 @@ void free(void *ptr) {
  */
 void *realloc(void *ptr, size_t size) {
     // implement realloc!
-    return NULL;
+    // NULL ptr behave like malloc
+    if (!ptr) {
+        return malloc(size);
+    }
+    // if size 0, behave like free
+    if (size == 0) {
+        free(ptr);
+        return NULL;
+    }
+
+    // Access the block's metadata
+    meta_data *block = (meta_data *) ((char *) ptr - META_SIZE);
+
+    // Size is the same
+    if (block->size == size) {
+        return ptr;
+    }
+
+    // Alloc new block fo the requested size
+    void *new_ptr = malloc(size);
+    if (!new_ptr) {
+        return NULL;
+    }
+
+    // Determine size to copy
+    size_t copy_size = block->size < size ? block->size : size;
+
+    // copy mem
+    memcpy(new_ptr, ptr, copy_size);
+    // free old block
+    free(ptr);
+
+    return new_ptr;
 }
