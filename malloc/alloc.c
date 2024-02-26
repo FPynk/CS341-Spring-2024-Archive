@@ -10,17 +10,20 @@
 typedef struct meta_data {
     size_t size;
     int is_free;
+    void *ptr;
+    // in order
     struct meta_data *next;
     struct meta_data *prev;
-#ifdef DEBUG
-    unsigned long magic;    
-#endif
+    // keeps track of free blocks, may not be in order
+    struct meta_data *next_free;
+    struct meta_data *prev_free;
 } meta_data;
 
 // Global vars
 static meta_data* head = NULL;
-static size_t total_memory_requested = 0;
-static size_t total_memory_freed = 0;
+static meta_data* end = NULL;
+static meta_data* head_free = NULL;
+static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
 
@@ -94,10 +97,9 @@ void *malloc(size_t size) {
     if (size <= 0) {
         return NULL;
     }
-    total_memory_requested += size;
 
     // traverse to end and allocate
-    meta_data *curr = head;
+    meta_data *curr = head_free;
     meta_data *fit = NULL; // first fit free block
 
     // traverse to end of list or first fit free block
@@ -111,29 +113,28 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        // TODO: Splitting
-        // check spltting is possible
-        size_t remaining_size = fit->size - size - META_SIZE;
-        // check there's some space left
-        if (remaining_size > sizeof(meta_data)) {
-            // split block
-            meta_data *new_block = (meta_data *) ((char *) (fit + 1) + size);
-            new_block->size = remaining_size;
-            new_block->is_free = 1;
-            new_block->next = fit->next;
-            new_block->prev = fit;
-
-            // fix linking
-            if (fit->next) {
-                fit->next->prev = new_block;
-            }
-            fit->size = size;
-            fit->next = new_block;
-        }
 
         fit->is_free = 0;
+        // relinking free pointers
+        if (fit->next_free) {
+            // link next to prev
+            fit->next_free->prev_free = fit->prev_free;
+        } else {
+            // updating end
+            end_free = fit->prev_free;
+        }
+
+        if (fit->prev_free) {
+            fit->prev_free->next_free = fit->next_free;
+        } else {
+            head_free = fit->next_free;
+        }
+        fit->next_free = NULL;
+        fit->prev_free = NULL;
         return (void *) (fit + 1);
     }
+    // Creating new block
+    curr = end;
 
     // alocate mem block including space for meta data
     size_t total_size = size + META_SIZE;
@@ -145,16 +146,20 @@ void *malloc(size_t size) {
     // Initialise metadata
     block->size = size;
     block->is_free = 0;
+    block->ptr = (void *) (block + 1);
     block->next = NULL;
     block->prev = curr;
+    block->next_free = NULL;
+    block->prev_free = NULL;
 
     if (curr) {
         curr->next = block; // connect last block to newly alloced block
     } else {
         head = block;   // First block
     }
+    end = block; // update last block
 
-    return (void *) (block + 1);
+    return block->ptr;
 }
 
 /**
@@ -182,26 +187,19 @@ void free(void *ptr) {
 
     // get metadata, cast ptr to char * then minus META_SIZE
     meta_data *block = (meta_data *) ((char *) ptr - META_SIZE);
-    total_memory_freed += block->size;
     // mark block as free
     block->is_free = 1;
 
-    // coalescing with next block if possible
-    if (block->next && block->next->is_free) {
-        block->size += block->next->size + META_SIZE;
-        block->next = block->next->next;
-        // relinking next next block to this block, if it exists
-        if (block->next) {
-            block->next->prev = block;
-        }
-    }
-    // coalesce with previous blocks if possible
-    if (block->prev && block->prev->is_free) {
-        block->prev->size += block->size + META_SIZE;
-        block->prev->next = block->next;
-        if (block->next) {
-            block->next->prev = block->prev;
-        }
+    if (!head_free) {
+        head_free = block;
+        end_free = block;
+        block->prev_free = NULL;
+        block->next_free = NULL;
+    } else {
+        block->prev_free = end_free;
+        end_free->next_free = block; 
+        block->next_free = NULL;
+        end_free = block;
     }
 }
 
@@ -263,12 +261,13 @@ void *realloc(void *ptr, size_t size) {
     }
 
     // Access the block's metadata
-    meta_data *block = (meta_data *) ((char *) ptr - META_SIZE);
+    meta_data *block = (meta_data *) (((void *) ptr) - META_SIZE);
 
     // Size is the same
-    if (block->size == size) {
+    if (block->size >= size) {
         return ptr;
     }
+    
     // Determine size to copy
     size_t copy_size = block->size < size ? block->size : size;
 
