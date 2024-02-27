@@ -37,9 +37,10 @@ int main(int argc, char **argv) {
     pthread_join(tid1, NULL);
     pthread_join(tid2, NULL);
 
-    sem_destroy(&sem_a) sem_destroy(&sem_b)
+    sem_destroy(&sem_a);
+    sem_destroy(&sem_b);
 
-        free(quote_B);
+    free(quote_B);
     free(quote_A);
 
     return 0;
