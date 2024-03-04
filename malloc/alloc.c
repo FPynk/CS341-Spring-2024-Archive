@@ -38,6 +38,7 @@ void delink_free(meta_data *prev, meta_data *block);
 void add_free_end(meta_data *block);
 void add_free_head(meta_data *block);
 void split_block(meta_data *fit, size_t aligned_size);
+meta_data *coalesce_block(meta_data *block);
 
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
@@ -134,6 +135,82 @@ void split_block(meta_data *fit, size_t aligned_size) {
 
     // add smol to free list
     add_free_head(smol);
+}
+
+// coalesces block in front and behind
+// does not add to free list
+meta_data *coalesce_block(meta_data *block) {
+    // edge case block only one here, skip
+    if (head == end && end == block) {
+        return block;
+    }
+    // size of block
+    size_t block_size = block->size_w_flag & SIZE_MASK;
+
+    // pointers to prev and next blocks
+    meta_data *prev_block = block->prev; // will be null if head
+    meta_data *next_block = NULL;
+    if (end != block) {
+        next_block = (meta_data *) (((void *) block->ptr) + block_size);
+    }
+
+    // Handle prev, may need to change end
+    // check not null and check free
+    if (prev_block && prev_block->size_w_flag & IS_FREE_MASK) {
+        // delinking prev_block from free list
+        meta_data *prev_prev_block = NULL;
+        meta_data *curr = head_free;
+        // find prev of prev in free list O(n)
+        while (curr != prev_block) {
+            prev_prev_block = curr;
+            curr = curr->next_free;
+        }
+        delink_free(prev_prev_block, prev_block);
+
+        // handle prev_block size
+        size_t act_size_prev_block = prev_block->size_w_flag & SIZE_MASK;
+        // prev owns block
+        prev_block->size_w_flag = act_size_prev_block + ALIGNED_META_SIZE + block_size;
+        // mark prev as is_free
+        prev_block->size_w_flag |= IS_FREE_MASK;
+        // if block is end, set new end and return
+        if (block == end) {
+            end = prev_block;
+            return prev_block;
+        }
+        // if block is not end, link block after to prev_block
+        next_block->prev = prev_block;
+        // update block to prev so next_block coalesce doesn't die
+        block = prev_block;
+        block_size = block->size_w_flag & SIZE_MASK;
+    }
+
+    // Handle next, may need to change end
+    if (next_block && next_block->size_w_flag & IS_FREE_MASK) {
+        meta_data *next_block_prev_free = NULL;
+        meta_data *curr = head_free;
+        // find prev of next_block in free list O(n)
+        while (curr != next_block) {
+            next_block_prev_free = curr;
+            curr = curr->next_free;
+        }
+        delink_free(next_block_prev_free, next_block);
+
+        // next_block size
+        size_t act_size_next_block = next_block->size_w_flag & SIZE_MASK;
+        // update block size
+        block->size_w_flag = act_size_next_block + ALIGNED_META_SIZE + block_size;
+        block->size_w_flag |= IS_FREE_MASK;
+        // if next block is end, set new end and return
+        if (next_block == end) {
+            end = block;
+            return block;
+        }
+        // not end, grab next_next_block and link
+        meta_data *next_next_block = (meta_data *) (((void *) next_block->ptr) + act_size_next_block);
+        next_next_block->prev = block;
+    }
+    return block;
 }
 
 /**
@@ -294,7 +371,8 @@ void free(void *ptr) {
     meta_data *block = (meta_data *) ((void *) ptr - align_size(META_SIZE));
     // mark block as free
     block->size_w_flag |= IS_FREE_MASK;
-
+    // coalesce the block
+    block = coalesce_block(block);
     // add to end of free list
     add_free_end(block);
 }
@@ -363,10 +441,9 @@ void *realloc(void *ptr, size_t size) {
 
     size_t block_size = block->size_w_flag & SIZE_MASK;
     // Size is the same
-    if (block_size >= aligned_size) {
+    if (block_size < aligned_size + MIN_SIZE) {
         return ptr;
     }
-    
     // free(ptr);
     // Determine size to copy
     size_t copy_size = block_size < aligned_size ? block_size : aligned_size;
