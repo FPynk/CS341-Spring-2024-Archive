@@ -35,6 +35,7 @@ size_t align_size(size_t size);
 void *align_ptr(void *ptr);
 void delink_free(meta_data *prev, meta_data *block);
 void add_free_end(meta_data *block);
+void add_free_head(meta_data *block);
 
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
@@ -68,6 +69,7 @@ void delink_free(meta_data *prev, meta_data *block) {
     block->next_free = NULL;
 }
 
+//adds to end of free list
 void add_free_end(meta_data *block) {
     if (!head_free) {
         head_free = block;
@@ -77,6 +79,18 @@ void add_free_end(meta_data *block) {
         end_free->next_free = block; 
         block->next_free = NULL;
         end_free = block;
+    }
+}
+
+// adds to head of free list
+void add_free_head(meta_data *block) {
+    if (!head_free) {
+        head_free = block;
+        end_free = block;
+        block->next_free = NULL;
+    } else {
+        block->next_free = head_free;
+        head_free = block;
     }
 }
 
