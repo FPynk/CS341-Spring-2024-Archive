@@ -27,190 +27,6 @@ static meta_data* head_free = NULL;
 static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
-#define ALIGNMENT 16
-#define MIN_SIZE 8
-
-// Heap Checker
-void* get_next_mem(meta_data* block) {
-    return (void*)((void*)(block + 1) + block->size);
-}
-
-// Removes block from free list
-void free_delink(meta_data *block) {
-    if (!block) return;
-    // relinking free pointers
-    if (block->next_free) {
-        // link next to prev
-        block->next_free->prev_free = block->prev_free;
-    } else {
-        // updating end
-        end_free = block->prev_free;
-    }
-
-    if (block->prev_free) {
-        block->prev_free->next_free = block->next_free;
-    } else {
-        head_free = block->next_free;
-    }
-    block->next_free = NULL;
-    block->prev_free = NULL;
-}
-
-// Removes block from regular list
-void regular_delink(meta_data *block) {
-    if (!block) return;
-    // relinking free pointers
-    if (block->next) {
-        // link next to prev
-        block->next->prev = block->prev;
-    } else {
-        // updating end
-        end = block->prev;
-    }
-
-    if (block->prev) {
-        block->prev->next = block->next;
-    } else {
-        head = block->next;
-    }
-    block->next = NULL;
-    block->prev = NULL;
-}
-
-void add_free_end(meta_data* block) {
-    if (!block) return;
-
-    assert(!(head_free == NULL && head_free != end_free));
-    assert(!(end_free == NULL && end_free != head_free));
-
-    if (!head_free) {
-        head_free = block;
-        end_free = block;
-        block->next_free = NULL;
-        block->prev_free = NULL;
-    } else {
-        end_free->next = block;
-        block->prev_free = end_free;
-        block->next_free = NULL;
-        end_free = block;
-    }
-}
-
-// splits block into 2 smaller memory blocks
-// returns pointer of 1st memory block
-// Assume 1st will be used and 2nd is free
-// 1st arg is pointer to block to be split
-// 2nd arg is size of the smaller block on the left
-meta_data *split_block(meta_data *large_block, size_t size) {
-    // write(STDOUT_FILENO, "splitting\n", 11);
-    meta_data *smol_block = (meta_data *)(((void *)(large_block + 1)) + size);
-    
-    // Initialize the small block
-    smol_block->size = large_block->size - size - META_SIZE; // Correct size calculation
-    smol_block->is_free = 1;
-    smol_block->ptr = (void *)(smol_block + 1);
-    smol_block->next_free = NULL; // Initialize free list pointers
-    smol_block->prev_free = NULL;
-    
-    // Adjust the large block's properties
-    large_block->size = size;
-    large_block->is_free = 0; // Assuming it will be used immediately
-    
-    // Adjust the regular doubly linked list pointers
-    smol_block->next = large_block->next;
-    smol_block->prev = large_block;
-    if (large_block->next) {
-        large_block->next->prev = smol_block;
-    }
-    large_block->next = smol_block;
-
-    // Update the global 'end' if necessary
-    if (end == large_block) {
-        end = smol_block;
-    }
-    
-    free_delink(large_block);
-    // Handle the free list
-    // No need to delink large_block from the free list here, since it's being used
-    // Add smol_block to the free list
-    add_free_end(smol_block);
-
-    return large_block; // The first block is returned, now ready to be used
-}
-
-// reuses block ,splits if needed
-void *reuse_block(meta_data *fit, size_t size) {
-    
-    size_t remaining_size = fit->size - size - META_SIZE;
-    if (remaining_size >= META_SIZE) {
-        meta_data *block = split_block(fit, size);
-        block->is_free = 0;
-        return block->ptr;
-    } else {
-        fit->is_free = 0;
-        free_delink(fit);
-        return fit->ptr;
-    }
-}
-
-// reuse block, no split
-void *reuse_block_old(meta_data *fit) {
-    fit->is_free = 0;
-    free_delink(fit);
-    // // relinking free pointers
-    // if (fit->next_free) {
-    //     // link next to prev
-    //     fit->next_free->prev_free = fit->prev_free;
-    // } else {
-    //     // updating end
-    //     end_free = fit->prev_free;
-    // }
-
-    // if (fit->prev_free) {
-    //     fit->prev_free->next_free = fit->next_free;
-    // } else {
-    //     head_free = fit->next_free;
-    // }
-    
-    // fit->next_free = NULL;
-    // fit->prev_free = NULL;
-    return fit->ptr;
-}
-
-// coalesce block, 
-void *coalesce_block(meta_data* block) {
-     // coalesce curr and back
-    if (block->prev && block->prev->is_free) {
-        // write(STDOUT_FILENO, "coalesce front\n", 15);
-        // handle free list delink
-        meta_data *prev_block = block->prev;
-        free_delink(prev_block);
-        free_delink(block);
-        // handle regular list delink
-        regular_delink(block);
-
-        // handle regular list adjustment
-        prev_block->size += block->size + META_SIZE;
-        // handle free list relink
-        block = prev_block;
-    }
-    
-    // coalesce front and curr
-    if (block->next && block->next->is_free) {
-        // write(STDOUT_FILENO, "coalesce back\n", 14);
-        // handle free list delink
-        meta_data *next_block = block->next;
-        free_delink(next_block);
-        free_delink(block);
-        // handle regular list delink
-        regular_delink(next_block);
-
-        // handle regular list adjustment
-        block->size += META_SIZE + next_block->size;
-    }
-    return block;
-}
-
 
 /**
  * Allocate space for array in memory
@@ -300,8 +116,25 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        // return reuse_block(fit, size);
-        return reuse_block_old(fit);
+
+        fit->is_free = 0;
+        // relinking free pointers
+        if (fit->next_free) {
+            // link next to prev
+            fit->next_free->prev_free = fit->prev_free;
+        } else {
+            // updating end
+            end_free = fit->prev_free;
+        }
+
+        if (fit->prev_free) {
+            fit->prev_free->next_free = fit->next_free;
+        } else {
+            head_free = fit->next_free;
+        }
+        fit->next_free = NULL;
+        fit->prev_free = NULL;
+        return (void *) (fit + 1);
     }
     // Creating new block
     curr = end;
@@ -361,9 +194,17 @@ void free(void *ptr) {
     // mark block as free
     block->is_free = 1;
 
-    // block = coalesce_block(block);
-
-    add_free_end(block);
+    if (!head_free) {
+        head_free = block;
+        end_free = block;
+        block->prev_free = NULL;
+        block->next_free = NULL;
+    } else {
+        block->prev_free = end_free;
+        end_free->next_free = block; 
+        block->next_free = NULL;
+        end_free = block;
+    }
 }
 
 /**
