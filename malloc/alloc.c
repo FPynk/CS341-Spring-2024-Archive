@@ -140,7 +140,7 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        fit->size_w_flag &= SIZE_MASK;
+        fit->size_w_flag = fit->size_w_flag & SIZE_MASK; // clear mask, set to not free
         // adjust end pointers
         if (!fit->next_free) {
             // updating end
@@ -161,7 +161,8 @@ void *malloc(size_t size) {
     curr = end;
 
     // alocate mem block including space for meta data
-    size_t total_size = align_size(size) + align_size(META_SIZE);
+    size_t aligned_size = align_size(size);
+    size_t total_size = aligned_size + align_size(META_SIZE);
     meta_data *block = sbrk(total_size);
     if (block == (void *) -1) {
         return NULL; // Allocation failed
@@ -169,8 +170,8 @@ void *malloc(size_t size) {
     void *mem_ptr = (void *)(block + 1);
     void *aligned_ptr = align_ptr(mem_ptr);
     // Initialise metadata
-    block->size_w_flag = size;
-    block->size_w_flag &= SIZE_MASK;
+    block->size_w_flag = aligned_size;
+    // block->size_w_flag &= SIZE_MASK;
     block->ptr = aligned_ptr;
     block->prev = end;
     block->next_free = NULL;
@@ -178,7 +179,8 @@ void *malloc(size_t size) {
     if (!end) {
         head = block;   // First block
     }
-    end = (meta_data *) (((void *) block) + align_size(META_SIZE) + (block->size_w_flag & SIZE_MASK)); // update last block
+    // size_t act_size = block->size_w_flag & SIZE_MASK;
+    end = block; // (meta_data *) (((void *) block) + align_size(META_SIZE) + act_size); // update last block
 
     return block->ptr;
 }
@@ -282,19 +284,19 @@ void *realloc(void *ptr, size_t size) {
         return NULL;
     }
 
-    size = align_size(size);
+    size_t aligned_size = align_size(size);
     // Access the block's metadata
     meta_data *block = (meta_data *) (((void *) ptr) - align_size(META_SIZE));
 
     size_t block_size = block->size_w_flag & SIZE_MASK;
     // Size is the same
-    if (block_size >= size) {
+    if (block_size >= aligned_size) {
         return ptr;
     }
     
     free(ptr);
     // Determine size to copy
-    size_t copy_size = block_size < size ? block_size : size;
+    size_t copy_size = block_size < aligned_size ? block_size : aligned_size;
     // Alloc new block for the requested size
     void *new_ptr = malloc(size);
     if (!new_ptr) {
