@@ -3,6 +3,7 @@
  * CS 341 - Spring 2024
  */
 #include <stdio.h>
+#include <stdint.h> 
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -27,6 +28,23 @@ static meta_data* head_free = NULL;
 static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
+#define ALIGNMENT 16
+// Helper functions
+size_t align_size(size_t size);
+void *align_ptr(void *ptr);
+
+// Aligns size to macro ALIGNMENT, currently 16
+size_t align_size(size_t size) {
+    return (size + ALIGNMENT) & ~(ALIGNMENT - 1);
+}
+
+// returns ptr to mem block aligned
+void *mem_ptr(void *ptr) {
+    // uintptr_t for arithmetic operations
+    uintptr_t unaligned_addr = (uintptr_t) ptr;
+    uintptr_t aligned_addr = unaligned_addr + align_size(META_SIZE);
+    return (void *) aligned_addr;
+}
 
 /**
  * Allocate space for array in memory
@@ -116,7 +134,6 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-
         fit->is_free = 0;
         // relinking free pointers
         if (fit->next_free) {
@@ -134,13 +151,13 @@ void *malloc(size_t size) {
         }
         fit->next_free = NULL;
         fit->prev_free = NULL;
-        return (void *) (fit + 1);
+        return (void *) (fit->ptr);
     }
     // Creating new block
     curr = end;
 
     // alocate mem block including space for meta data
-    size_t total_size = size + META_SIZE;
+    size_t total_size = align_size(size) + align_size(META_SIZE);
     meta_data *block = sbrk(total_size);
     if (block == (void *) -1) {
         return NULL; // Allocation failed
@@ -149,14 +166,14 @@ void *malloc(size_t size) {
     // Initialise metadata
     block->size = size;
     block->is_free = 0;
-    block->ptr = (void *) (block + 1);
+    block->ptr = (void *) (block + 1); // mem_ptr(block);
     block->next = NULL;
-    block->prev = curr;
+    block->prev = end;
     block->next_free = NULL;
     block->prev_free = NULL;
 
-    if (curr) {
-        curr->next = block; // connect last block to newly alloced block
+    if (end) {
+        end->next = block; // connect last block to newly alloced block
     } else {
         head = block;   // First block
     }
