@@ -26,77 +26,119 @@ static meta_data* head_free = NULL;
 static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
+
+// Removes block from free list
+void free_delink(meta_data *block) {
+    if (!block) return;
+    // relinking free pointers
+    if (block->next_free) {
+        // link next to prev
+        block->next_free->prev_free = block->prev_free;
+    } else {
+        // updating end
+        end_free = block->prev_free;
+    }
+
+    if (block->prev_free) {
+        block->prev_free->next_free = block->next_free;
+    } else {
+        head_free = block->next_free;
+    }
+    block->next_free = NULL;
+    block->prev_free = NULL;
+}
+
+// Removes block from regular list
+void regular_delink(meta_data *block) {
+    if (!block) return;
+    // relinking free pointers
+    if (block->next) {
+        // link next to prev
+        block->next->prev = block->prev;
+    } else {
+        // updating end
+        end = block->prev;
+    }
+
+    if (block->prev) {
+        block->prev->next = block->next;
+    } else {
+        head = block->next;
+    }
+    block->next = NULL;
+    block->prev = NULL;
+}
+
+void add_free_end(meta_data* block) {
+    if (!block) return;
+
+    if (!head_free) {
+        head_free = block;
+        end_free = block;
+        block->next_free = NULL;
+        block->prev_free = NULL;
+    } else {
+        end_free->next = block;
+        block->prev_free = end_free;
+        block->next_free = NULL;
+        end_free = block;
+    }
+}
+
+// splits block into 2 smaller memory blocks
+// returns pointer of 1st memory block
+// Assume 1st will be used and 2nd is free
+// 1st arg is pointer to block to be split
+// 2nd arg is size of the smaller block
+meta_data *split_block(meta_data *large_block, size_t size) {
+    // write(STDOUT_FILENO, "splitting\n", 11);
+    meta_data *smol_block = (meta_data *)(((void *)(large_block + 1)) + size);
+    
+    // Initialize the small block
+    smol_block->size = large_block->size - size - META_SIZE; // Correct size calculation
+    smol_block->is_free = 1;
+    smol_block->ptr = (void *)(smol_block + 1);
+    smol_block->next_free = NULL; // Initialize free list pointers
+    smol_block->prev_free = NULL;
+    
+    // Adjust the large block's properties
+    large_block->size = size;
+    large_block->is_free = 0; // Assuming it will be used immediately
+    
+    // Adjust the regular doubly linked list pointers
+    smol_block->next = large_block->next;
+    smol_block->prev = large_block;
+    if (large_block->next) {
+        large_block->next->prev = smol_block;
+    }
+    large_block->next = smol_block;
+
+    // Update the global 'end' if necessary
+    if (end == large_block) {
+        end = smol_block;
+    }
+    
+    free_delink(large_block);
+    // Handle the free list
+    // No need to delink large_block from the free list here, since it's being used
+    // Add smol_block to the free list
+    add_free_end(smol_block);
+
+    return large_block; // The first block is returned, now ready to be used
+}
+
 // reuses block ,splits if needed
 void *reuse_block(meta_data *fit, size_t size) {
     
     size_t remaining_size = fit->size - size - META_SIZE;
-    int split = 0;
-
-    // check for space to split, use meta_size as min size
     if (remaining_size >= META_SIZE) {
-        // flag for splitting
-        split = 1;
-        // create new block
-        meta_data *new_block = (meta_data *)((char *)(fit + 1) + size);
-        new_block->size = remaining_size;
-        new_block->is_free = 1;
-        new_block->ptr = (void *)(new_block + 1);
-
-        // insert new block into free list, maintain original place
-        new_block->next_free = fit->next_free;
-        new_block->prev_free = fit->prev_free;
-        // adjusting links before and after
-        if (fit->next_free) {
-            fit->next_free->prev_free = new_block;
-        }
-        if (fit->prev_free) {
-            fit->prev_free->next_free = new_block;
-        } else {
-            head_free = new_block; // if original block was head
-        }
-        // if original was end
-        if (end_free == fit) {
-            end_free = new_block;
-        }
-
-        // insert new block into regular list
-        new_block->next = fit->next;
-        new_block->prev = fit;
-        // adjust prev block pointers
-        fit->next = new_block;
-        // adjust next block pointers
-        if (new_block->next) {
-            new_block->next->prev = new_block;
-        }
-        if (end == fit) {
-            end = new_block;
-        }
-
-        // update original block size
-        fit->size = size;
+        meta_data *block = split_block(fit, size);
+        return block->ptr;
+    } else {
+        fit->is_free = 0;
+        free_delink(fit);
+        return fit->ptr;
     }
-
-    fit->is_free = 0;
-    if (!split) {
-        // relinking free pointers
-        if (fit->next_free) {
-            // link next to prev
-            fit->next_free->prev_free = fit->prev_free;
-        } else {
-            // updating end
-            end_free = fit->prev_free;
-        }
-
-        if (fit->prev_free) {
-            fit->prev_free->next_free = fit->next_free;
-        } else {
-            head_free = fit->next_free;
-        }
-    }
-    
-    fit->next_free = NULL;
-    fit->prev_free = NULL;
-    return (void *) (fit + 1);
 }
 
 // reuse block, no split
@@ -119,10 +161,40 @@ void *reuse_block_old(meta_data *fit) {
     
     fit->next_free = NULL;
     fit->prev_free = NULL;
-    return (void *) (fit + 1);
+    return fit->ptr;
 }
 
+// coalesce block, 
 void *coalesce_block(meta_data* block) {
+     // coalesce curr and back
+    if (block->prev && block->prev->is_free) {
+        // write(STDOUT_FILENO, "coalesce front\n", 15);
+        // handle free list delink
+        meta_data *prev_block = block->prev;
+        free_delink(prev_block);
+        free_delink(block);
+        // handle regular list delink
+        regular_delink(block);
+
+        // handle regular list adjustment
+        prev_block->size += block->size + META_SIZE;
+        // handle free list relink
+        block = prev_block;
+    }
+    
+    // coalesce front and curr
+    if (block->next && block->next->is_free) {
+        // write(STDOUT_FILENO, "coalesce back\n", 14);
+        // handle free list delink
+        meta_data *next_block = block->next;
+        free_delink(next_block);
+        free_delink(block);
+        // handle regular list delink
+        regular_delink(next_block);
+
+        // handle regular list adjustment
+        block->size += META_SIZE + next_block->size;
+    }
     return block;
 }
 
@@ -193,6 +265,7 @@ void *calloc(size_t num, size_t size) {
  * @see http://www.cplusplus.com/reference/clibrary/cstdlib/malloc/
  */
 void *malloc(size_t size) {
+    // write(STDOUT_FILENO, "malloc\n", 7);
     // implement malloc!
     if (size <= 0) {
         return NULL;
@@ -213,8 +286,8 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        // return reuse_block(fit, size);
-        return reuse_block_old(fit);
+        return reuse_block(fit, size);
+        // return reuse_block_old(fit);
     }
     // Creating new block
     curr = end;
@@ -262,6 +335,7 @@ void *malloc(size_t size) {
  *    passed as argument, no action occurs.
  */
 void free(void *ptr) {
+    // write(STDOUT_FILENO, "free\n", 5);
     // implement free!
     // NULL ptr checking
     if (!ptr) {
@@ -273,20 +347,9 @@ void free(void *ptr) {
     // mark block as free
     block->is_free = 1;
 
-        coalesce_block(block);
+    block = coalesce_block(block);
 
-
-    if (!head_free) {
-        head_free = block;
-        end_free = block;
-        block->prev_free = NULL;
-        block->next_free = NULL;
-    } else {
-        block->prev_free = end_free;
-        end_free->next_free = block; 
-        block->next_free = NULL;
-        end_free = block;
-    }
+    add_free_end(block);
 }
 
 /**
@@ -335,6 +398,7 @@ void free(void *ptr) {
  * @see http://www.cplusplus.com/reference/clibrary/cstdlib/realloc/
  */
 void *realloc(void *ptr, size_t size) {
+    write(STDOUT_FILENO, "realloc\n", 8);
     // implement realloc!
     // NULL ptr behave like malloc
     if (!ptr) {
