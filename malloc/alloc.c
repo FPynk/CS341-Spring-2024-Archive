@@ -13,9 +13,9 @@ typedef struct meta_data {
     size_t size_w_flag; // flag for free 1 if free, in lowest bit
     void *ptr;
     // in order
-    struct meta_data *prev;
+    struct meta_data *prev; // always check head and end
     // keeps track of free blocks, may not be in order
-    struct meta_data *next_free;
+    struct meta_data *next_free; // always check head_free and head_end
 } meta_data;
 
 // Global vars
@@ -25,6 +25,7 @@ static meta_data* head_free = NULL;
 static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
+#define ALIGNED_META_SIZE align_size(META_SIZE)
 #define ALIGNMENT 16
 #define MIN_SIZE align_size(META_SIZE) * 2 // min size of any block, includes meta_data
 #define IS_FREE_MASK 0x1
@@ -36,12 +37,12 @@ void *align_ptr(void *ptr);
 void delink_free(meta_data *prev, meta_data *block);
 void add_free_end(meta_data *block);
 void add_free_head(meta_data *block);
+void split_block(meta_data *fit, size_t aligned_size);
 
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
     return (size + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
 }
-
 // returns ptr to mem block aligned
 void *align_ptr(void *ptr) {
     // uintptr_t for arithmetic operations
@@ -50,7 +51,6 @@ void *align_ptr(void *ptr) {
     uintptr_t aligned_addr = (unaligned_addr + alignment_mask) & ~alignment_mask;
     return (void*)aligned_addr;
 }
-
 // delinks block from free list
 void delink_free(meta_data *prev, meta_data *block) {
     block->size_w_flag = block->size_w_flag & SIZE_MASK; // clear mask, set to not free
@@ -68,7 +68,6 @@ void delink_free(meta_data *prev, meta_data *block) {
     }
     block->next_free = NULL;
 }
-
 //adds to end of free list
 void add_free_end(meta_data *block) {
     if (!head_free) {
@@ -81,7 +80,6 @@ void add_free_end(meta_data *block) {
         end_free = block;
     }
 }
-
 // adds to head of free list
 void add_free_head(meta_data *block) {
     if (!head_free) {
@@ -92,6 +90,50 @@ void add_free_head(meta_data *block) {
         block->next_free = head_free;
         head_free = block;
     }
+}
+
+// splits block so that fit only has space for aligned size and excess space is a new block
+// aligned_size is assumed to be aligned
+// also handles linking for regular list and free list
+// will add new smaller block at HEAD of free list
+void split_block(meta_data *fit, size_t aligned_size) {
+    size_t actual_size = fit->size_w_flag & SIZE_MASK;
+    if (actual_size < aligned_size + MIN_SIZE) {
+        return; // shouldn't reach but just in case
+    }
+    // pointer to new smaller block start of meta_data
+    meta_data *smol = (meta_data *) (((void *) fit->ptr) + aligned_size);
+
+    // edit fit block and shrink
+    fit->size_w_flag = aligned_size; // flag set to 0
+    // free list for fit handled by delink_free earlier
+
+    // changing smol properties
+    // size calcs
+    size_t smol_size = actual_size - aligned_size - ALIGNED_META_SIZE; 
+    smol->size_w_flag = smol_size;
+    smol->size_w_flag |= IS_FREE_MASK; // mark as free
+
+    // Setting up ptr for smol
+    void *mem_ptr = (void *)(smol + 1);
+    void *aligned_ptr = align_ptr(mem_ptr);
+    smol->ptr = aligned_ptr;
+
+    // linking in regular list, edge case of end, head shouldnt happen
+    smol->prev = fit;
+
+    // end edge case: smol is new end
+    if (end == fit) {
+        end = smol;
+    } else {
+        // smol is not new end, connect to next block
+        // grab block after
+        meta_data *next = (meta_data *) (((void *) fit->ptr) + actual_size);
+        next->prev = smol;
+    }
+
+    // add smol to free list
+    add_free_head(smol);
 }
 
 /**
@@ -170,7 +212,7 @@ void *malloc(size_t size) {
     // traverse to end and allocate
     meta_data *curr = head_free;
     meta_data *fit = NULL; // first fit free block
-    meta_data *prev = NULL;
+    meta_data *prev = NULL; //prev in FREE list
 
     // traverse to end of list or first fit free block
     while (curr != NULL) {
@@ -184,16 +226,23 @@ void *malloc(size_t size) {
         curr = curr->next_free;
     }
 
-    // Reuse block
+    size_t aligned_size = align_size(size);
+
+    // Reuse block, may split
     if (fit) {
-        delink_free(prev, fit);
+        delink_free(prev, fit); // fit is set to not free
+        // size of fit block
+        size_t actual_size = fit->size_w_flag & SIZE_MASK;
+        // split if size of fit is large enough to split = req size + Meta_data + mem size of meta_Data
+        if (actual_size >= aligned_size + MIN_SIZE) {
+            split_block(fit, aligned_size);
+        }
         return (void *) (fit->ptr);
     }
     // Creating new block
     curr = end;
 
     // alocate mem block including space for meta data
-    size_t aligned_size = align_size(size);
     size_t total_size = aligned_size + align_size(META_SIZE);
     meta_data *block = sbrk(total_size);
     if (block == (void *) -1) {
