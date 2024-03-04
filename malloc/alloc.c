@@ -10,8 +10,7 @@
 #include <assert.h>
 
 typedef struct meta_data {
-    size_t size;
-    int is_free;
+    size_t size_w_flag; // flag for free 1 if free, in lowest bit
     void *ptr;
     // in order
     struct meta_data *prev;
@@ -27,6 +26,10 @@ static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
 #define ALIGNMENT 16
+#define MIN_SIZE align_size(META_SIZE)
+#define IS_FREE_MASK 0x1
+#define SIZE_MASK (~IS_FREE_MASK)
+
 // Helper functions
 size_t align_size(size_t size);
 void *align_ptr(void *ptr);
@@ -125,7 +128,9 @@ void *malloc(size_t size) {
 
     // traverse to end of list or first fit free block
     while (curr != NULL) {
-        if (curr->is_free && curr->size >= size) {
+        int is_free = curr->size_w_flag & IS_FREE_MASK;
+        size_t actual_size = curr->size_w_flag & SIZE_MASK;
+        if (is_free && actual_size >= size) {
             fit = curr;
             break;
         }
@@ -135,7 +140,7 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        fit->is_free = 0;
+        fit->size_w_flag &= SIZE_MASK;
         // adjust end pointers
         if (!fit->next_free) {
             // updating end
@@ -164,8 +169,8 @@ void *malloc(size_t size) {
     void *mem_ptr = (void *)(block + 1);
     void *aligned_ptr = align_ptr(mem_ptr);
     // Initialise metadata
-    block->size = size;
-    block->is_free = 0;
+    block->size_w_flag = size;
+    block->size_w_flag &= SIZE_MASK;
     block->ptr = aligned_ptr;
     block->prev = end;
     block->next_free = NULL;
@@ -173,7 +178,7 @@ void *malloc(size_t size) {
     if (!end) {
         head = block;   // First block
     }
-    end = (meta_data *) (((void *) block) + align_size(META_SIZE) + block->size); // update last block
+    end = (meta_data *) (((void *) block) + align_size(META_SIZE) + (block->size_w_flag & SIZE_MASK)); // update last block
 
     return block->ptr;
 }
@@ -205,7 +210,7 @@ void free(void *ptr) {
     // get metadata, cast ptr to char then minus META_SIZE
     meta_data *block = (meta_data *) ((void *) ptr - align_size(META_SIZE));
     // mark block as free
-    block->is_free = 1;
+    block->size_w_flag |= IS_FREE_MASK;
 
     // add to end of free list
     if (!head_free) {
@@ -281,14 +286,15 @@ void *realloc(void *ptr, size_t size) {
     // Access the block's metadata
     meta_data *block = (meta_data *) (((void *) ptr) - align_size(META_SIZE));
 
+    size_t block_size = block->size_w_flag & SIZE_MASK;
     // Size is the same
-    if (block->size >= size) {
+    if (block_size >= size) {
         return ptr;
     }
     
     free(ptr);
     // Determine size to copy
-    size_t copy_size = block->size < size ? block->size : size;
+    size_t copy_size = block_size < size ? block_size : size;
     // Alloc new block for the requested size
     void *new_ptr = malloc(size);
     if (!new_ptr) {
