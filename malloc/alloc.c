@@ -269,14 +269,10 @@ void *realloc(void *ptr, size_t size) {
     meta_data *block = (meta_data *) (((void *) ptr) - META_SIZE);
 
     // Size is the same
-    if (block->size > size) {
+    if (block->size >= size) {
         return ptr;
     }
     
-    // Size is smaller than current block
-    if (block->size >= size + META_SIZE * 2) {
-        return ptr;
-    }
     free(ptr);
     // Determine size to copy
     size_t copy_size = block->size < size ? block->size : size;
