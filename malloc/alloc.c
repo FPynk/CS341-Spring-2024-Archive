@@ -459,7 +459,7 @@ void *realloc(void *ptr, size_t size) {
 
     size_t block_size = block->size_w_flag & SIZE_MASK;
     // Size is the same
-    if (block_size >= aligned_size && block_size < aligned_size * 2 + MIN_SIZE) {
+    if (block_size >= aligned_size && block_size < aligned_size * 10 + MIN_SIZE) {
         return ptr;
     }
     // free(ptr);
