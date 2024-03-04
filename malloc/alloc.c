@@ -15,6 +15,7 @@ typedef struct meta_data {
     // in order
     struct meta_data *prev; // always check head and end
     // keeps track of free blocks, may not be in order
+    struct meta_data *prev_free;
     struct meta_data *next_free; // always check head_free and head_end
 } meta_data;
 
@@ -35,7 +36,7 @@ static meta_data* end_free = NULL;
 size_t align_size(size_t size);
 void *get_mem_ptr(meta_data *block);
 void *align_ptr(void *ptr);
-void delink_free(meta_data *prev, meta_data *block);
+void delink_free(meta_data *block);
 void add_free_end(meta_data *block);
 void add_free_head(meta_data *block);
 void split_block(meta_data *fit, size_t aligned_size);
@@ -60,21 +61,27 @@ void *align_ptr(void *ptr) {
     return (void*)aligned_addr;
 }
 // delinks block from free list
-void delink_free(meta_data *prev, meta_data *block) {
+void delink_free(meta_data *block) {
     block->size_w_flag = block->size_w_flag & SIZE_MASK; // clear mask, set to not free
+    meta_data *prev = block->prev_free;
+    meta_data *next = block->next_free;
     // adjust end pointers
-    if (!block->next_free) {
+    // Not end case
+    if (next) {
         // updating end
+        next->prev_free = prev;
+    } else {
         end_free = prev;
     }
     // check if head or mid list
     if (prev) {
         // mid list
-        prev->next_free = block->next_free;
+        prev->next_free = next;
     } else {
-        head_free = block->next_free;
+        head_free = next;
     }
     block->next_free = NULL;
+    block->prev_free = NULL;
 }
 //adds to end of free list
 void add_free_end(meta_data *block) {
@@ -82,8 +89,10 @@ void add_free_end(meta_data *block) {
         head_free = block;
         end_free = block;
         block->next_free = NULL;
+        block->prev_free = NULL;
     } else {
-        end_free->next_free = block; 
+        end_free->next_free = block;
+        block->prev_free = end_free;
         block->next_free = NULL;
         end_free = block;
     }
@@ -94,8 +103,11 @@ void add_free_head(meta_data *block) {
         head_free = block;
         end_free = block;
         block->next_free = NULL;
+        block->prev_free = NULL;
     } else {
         block->next_free = head_free;
+        head_free->prev_free = block;
+        block->prev_free = NULL;
         head_free = block;
     }
 }
@@ -164,14 +176,14 @@ meta_data *coalesce_block(meta_data *block) {
     // check not null and check free
     if (prev_block && prev_block->size_w_flag & IS_FREE_MASK) {
         // delinking prev_block from free list
-        meta_data *prev_prev_block = NULL;
-        meta_data *curr = head_free;
+        // meta_data *prev_prev_block = NULL;
+        // meta_data *curr = head_free;
         // find prev of prev in free list O(n)
-        while (curr != prev_block) {
-            prev_prev_block = curr;
-            curr = curr->next_free;
-        }
-        delink_free(prev_prev_block, prev_block);
+        // while (curr != prev_block) {
+        //     prev_prev_block = curr;
+        //     curr = curr->next_free;
+        // }
+        delink_free(prev_block);
 
         // handle prev_block size
         size_t act_size_prev_block = prev_block->size_w_flag & SIZE_MASK;
@@ -193,14 +205,14 @@ meta_data *coalesce_block(meta_data *block) {
 
     // Handle next, may need to change end
     if (next_block && next_block->size_w_flag & IS_FREE_MASK) {
-        meta_data *next_block_prev_free = NULL;
-        meta_data *curr = head_free;
+        // meta_data *next_block_prev_free = NULL;
+        // meta_data *curr = head_free;
         // find prev of next_block in free list O(n)
-        while (curr != next_block) {
-            next_block_prev_free = curr;
-            curr = curr->next_free;
-        }
-        delink_free(next_block_prev_free, next_block);
+        // while (curr != next_block) {
+        //     next_block_prev_free = curr;
+        //     curr = curr->next_free;
+        // }
+        delink_free(next_block);
 
         // next_block size
         size_t act_size_next_block = next_block->size_w_flag & SIZE_MASK;
@@ -295,7 +307,7 @@ void *malloc(size_t size) {
     // traverse to end and allocate
     meta_data *curr = head_free;
     meta_data *fit = NULL; // first fit free block
-    meta_data *prev = NULL; //prev in FREE list
+    // meta_data *prev = NULL; //prev in FREE list
 
     // traverse to end of list or first fit free block
     while (curr != NULL) {
@@ -305,7 +317,7 @@ void *malloc(size_t size) {
             fit = curr;
             break;
         }
-        prev = curr;
+        // prev = curr;
         curr = curr->next_free;
     }
 
@@ -313,7 +325,7 @@ void *malloc(size_t size) {
 
     // Reuse block, may split
     if (fit) {
-        delink_free(prev, fit); // fit is set to not free
+        delink_free(fit); // fit is set to not free
         // size of fit block
         size_t actual_size = fit->size_w_flag & SIZE_MASK;
         // split if size of fit is large enough to split = req size + Meta_data + mem size of meta_Data
@@ -338,6 +350,7 @@ void *malloc(size_t size) {
     // block->ptr = aligned_ptr;
     block->prev = end;
     block->next_free = NULL;
+    block->prev_free = NULL;
 
     if (!end) {
         head = block;   // First block
