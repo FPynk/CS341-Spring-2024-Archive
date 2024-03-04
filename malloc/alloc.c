@@ -11,7 +11,7 @@
 
 typedef struct meta_data {
     size_t size_w_flag; // flag for free 1 if free, in lowest bit
-    void *ptr;
+    // void *ptr;
     // in order
     struct meta_data *prev; // always check head and end
     // keeps track of free blocks, may not be in order
@@ -33,6 +33,7 @@ static meta_data* end_free = NULL;
 
 // Helper functions
 size_t align_size(size_t size);
+void *get_mem_ptr(meta_data *block);
 void *align_ptr(void *ptr);
 void delink_free(meta_data *prev, meta_data *block);
 void add_free_end(meta_data *block);
@@ -43,6 +44,12 @@ meta_data *coalesce_block(meta_data *block);
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
     return (size + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
+}
+// returns pointer to data, aligned
+void *get_mem_ptr(meta_data *block) {
+    void *mem_ptr = (void *)(block + 1);
+    void *aligned_ptr = align_ptr(mem_ptr);
+    return aligned_ptr;
 }
 // returns ptr to mem block aligned
 void *align_ptr(void *ptr) {
@@ -103,7 +110,7 @@ void split_block(meta_data *fit, size_t aligned_size) {
         return; // shouldn't reach but just in case
     }
     // pointer to new smaller block start of meta_data
-    meta_data *smol = (meta_data *) (((void *) fit->ptr) + aligned_size);
+    meta_data *smol = (meta_data *) (((void *) get_mem_ptr(fit)) + aligned_size);
 
     // edit fit block and shrink
     fit->size_w_flag = aligned_size; // flag set to 0
@@ -116,9 +123,8 @@ void split_block(meta_data *fit, size_t aligned_size) {
     smol->size_w_flag |= IS_FREE_MASK; // mark as free
 
     // Setting up ptr for smol
-    void *mem_ptr = (void *)(smol + 1);
-    void *aligned_ptr = align_ptr(mem_ptr);
-    smol->ptr = aligned_ptr;
+    // void *mem_ptr = (void *)(smol + 1);
+    // void *aligned_ptr = align_ptr(mem_ptr);
 
     // linking in regular list, edge case of end, head shouldnt happen
     smol->prev = fit;
@@ -129,7 +135,7 @@ void split_block(meta_data *fit, size_t aligned_size) {
     } else {
         // smol is not new end, connect to next block
         // grab block after
-        meta_data *next = (meta_data *) (((void *) fit->ptr) + actual_size);
+        meta_data *next = (meta_data *) (((void *) get_mem_ptr(fit)) + actual_size);
         next->prev = smol;
     }
 
@@ -151,7 +157,7 @@ meta_data *coalesce_block(meta_data *block) {
     meta_data *prev_block = block->prev; // will be null if head
     meta_data *next_block = NULL;
     if (end != block) {
-        next_block = (meta_data *) (((void *) block->ptr) + block_size);
+        next_block = (meta_data *) (((void *) get_mem_ptr(block)) + block_size);
     }
 
     // Handle prev, may need to change end
@@ -207,7 +213,7 @@ meta_data *coalesce_block(meta_data *block) {
             return block;
         }
         // not end, grab next_next_block and link
-        meta_data *next_next_block = (meta_data *) (((void *) next_block->ptr) + act_size_next_block);
+        meta_data *next_next_block = (meta_data *) (((void *) get_mem_ptr(next_block)) + act_size_next_block);
         next_next_block->prev = block;
     }
     return block;
@@ -314,7 +320,7 @@ void *malloc(size_t size) {
         if (actual_size >= aligned_size + MIN_SIZE) {
             split_block(fit, aligned_size);
         }
-        return (void *) (fit->ptr);
+        return get_mem_ptr(fit);
     }
     // Creating new block
     curr = end;
@@ -325,12 +331,11 @@ void *malloc(size_t size) {
     if (block == (void *) -1) {
         return NULL; // Allocation failed
     }
-    void *mem_ptr = (void *)(block + 1);
-    void *aligned_ptr = align_ptr(mem_ptr);
+    // void *mem_ptr = (void *)(block + 1);
+    // void *aligned_ptr = align_ptr(mem_ptr);
     // Initialise metadata
     block->size_w_flag = aligned_size;
-    // block->size_w_flag &= SIZE_MASK;
-    block->ptr = aligned_ptr;
+    // block->ptr = aligned_ptr;
     block->prev = end;
     block->next_free = NULL;
 
@@ -340,7 +345,7 @@ void *malloc(size_t size) {
     // size_t act_size = block->size_w_flag & SIZE_MASK;
     end = block; // (meta_data *) (((void *) block) + align_size(META_SIZE) + act_size); // update last block
 
-    return block->ptr;
+    return get_mem_ptr(block);
 }
 
 /**
@@ -441,7 +446,7 @@ void *realloc(void *ptr, size_t size) {
 
     size_t block_size = block->size_w_flag & SIZE_MASK;
     // Size is the same
-    if (block_size >= aligned_size && block_size < aligned_size + MIN_SIZE) {
+    if (block_size >= aligned_size && block_size < aligned_size * 2 + MIN_SIZE) {
         return ptr;
     }
     // free(ptr);
