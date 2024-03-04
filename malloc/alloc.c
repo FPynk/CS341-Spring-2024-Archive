@@ -14,7 +14,6 @@ typedef struct meta_data {
     int is_free;
     void *ptr;
     // in order
-    struct meta_data *next;
     struct meta_data *prev;
     // keeps track of free blocks, may not be in order
     struct meta_data *next_free;
@@ -168,16 +167,13 @@ void *malloc(size_t size) {
     block->size = size;
     block->is_free = 0;
     block->ptr = aligned_ptr;
-    block->next = NULL;
     block->prev = end;
     block->next_free = NULL;
 
-    if (end) {
-        end->next = block; // connect last block to newly alloced block
-    } else {
+    if (!end) {
         head = block;   // First block
     }
-    end = block; // update last block
+    end = (meta_data *) (((void *) block) + align_size(META_SIZE) + block->size); // update last block
 
     return block->ptr;
 }
