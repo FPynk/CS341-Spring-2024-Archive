@@ -35,15 +35,16 @@ void *align_ptr(void *ptr);
 
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
-    return (size + ALIGNMENT) & ~(ALIGNMENT - 1);
+    return (size + ALIGNMENT - 1) & ~(ALIGNMENT - 1);
 }
 
 // returns ptr to mem block aligned
-void *mem_ptr(void *ptr) {
+void *align_ptr(void *ptr) {
     // uintptr_t for arithmetic operations
     uintptr_t unaligned_addr = (uintptr_t) ptr;
-    uintptr_t aligned_addr = unaligned_addr + align_size(META_SIZE);
-    return (void *) aligned_addr;
+    uintptr_t alignment_mask = (uintptr_t)(ALIGNMENT - 1);
+    uintptr_t aligned_addr = (unaligned_addr + alignment_mask) & ~alignment_mask;
+    return (void*)aligned_addr;
 }
 
 /**
@@ -162,11 +163,12 @@ void *malloc(size_t size) {
     if (block == (void *) -1) {
         return NULL; // Allocation failed
     }
-
+    void *mem_ptr = (void *)(block + 1);
+    void *aligned_ptr = align_ptr(mem_ptr);
     // Initialise metadata
     block->size = size;
     block->is_free = 0;
-    block->ptr = (void *) (block + 1); // mem_ptr(block);
+    block->ptr = aligned_ptr;
     block->next = NULL;
     block->prev = end;
     block->next_free = NULL;
@@ -207,7 +209,7 @@ void free(void *ptr) {
     }
 
     // get metadata, cast ptr to char then minus META_SIZE
-    meta_data *block = (meta_data *) ((void *) ptr - META_SIZE);
+    meta_data *block = (meta_data *) ((void *) ptr - align_size(META_SIZE));
     // mark block as free
     block->is_free = 1;
 
@@ -282,8 +284,9 @@ void *realloc(void *ptr, size_t size) {
         return NULL;
     }
 
+    size = align_size(size);
     // Access the block's metadata
-    meta_data *block = (meta_data *) (((void *) ptr) - META_SIZE);
+    meta_data *block = (meta_data *) (((void *) ptr) - align_size(META_SIZE));
 
     // Size is the same
     if (block->size >= size) {
