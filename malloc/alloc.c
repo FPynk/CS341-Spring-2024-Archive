@@ -33,6 +33,8 @@ static meta_data* end_free = NULL;
 // Helper functions
 size_t align_size(size_t size);
 void *align_ptr(void *ptr);
+void delink_free(meta_data *prev, meta_data *block);
+void add_free_end(meta_data *block);
 
 // Aligns size to macro ALIGNMENT, currently 16
 size_t align_size(size_t size) {
@@ -46,6 +48,36 @@ void *align_ptr(void *ptr) {
     uintptr_t alignment_mask = (uintptr_t)(ALIGNMENT - 1);
     uintptr_t aligned_addr = (unaligned_addr + alignment_mask) & ~alignment_mask;
     return (void*)aligned_addr;
+}
+
+// delinks block from free list
+void delink_free(meta_data *prev, meta_data *block) {
+    block->size_w_flag = block->size_w_flag & SIZE_MASK; // clear mask, set to not free
+    // adjust end pointers
+    if (!block->next_free) {
+        // updating end
+        end_free = prev;
+    }
+    // check if head or mid list
+    if (prev) {
+        // mid list
+        prev->next_free = block->next_free;
+    } else {
+        head_free = block->next_free;
+    }
+    block->next_free = NULL;
+}
+
+void add_free_end(meta_data *block) {
+    if (!head_free) {
+        head_free = block;
+        end_free = block;
+        block->next_free = NULL;
+    } else {
+        end_free->next_free = block; 
+        block->next_free = NULL;
+        end_free = block;
+    }
 }
 
 /**
@@ -140,21 +172,7 @@ void *malloc(size_t size) {
 
     // Reuse block
     if (fit) {
-        fit->size_w_flag = fit->size_w_flag & SIZE_MASK; // clear mask, set to not free
-        // adjust end pointers
-        if (!fit->next_free) {
-            // updating end
-            end_free = prev;
-        }
-
-        // check if head or mid list
-        if (prev) {
-            // mid list
-            prev->next_free = fit->next_free;
-        } else {
-            head_free = fit->next_free;
-        }
-        fit->next_free = NULL;
+        delink_free(prev, fit);
         return (void *) (fit->ptr);
     }
     // Creating new block
@@ -215,15 +233,7 @@ void free(void *ptr) {
     block->size_w_flag |= IS_FREE_MASK;
 
     // add to end of free list
-    if (!head_free) {
-        head_free = block;
-        end_free = block;
-        block->next_free = NULL;
-    } else {
-        end_free->next_free = block; 
-        block->next_free = NULL;
-        end_free = block;
-    }
+    add_free_end(block);
 }
 
 /**
