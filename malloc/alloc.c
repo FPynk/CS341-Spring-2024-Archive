@@ -26,7 +26,7 @@ static meta_data* end_free = NULL;
 
 #define META_SIZE sizeof(meta_data)
 #define ALIGNMENT 16
-#define MIN_SIZE align_size(META_SIZE)
+#define MIN_SIZE align_size(META_SIZE) * 2 // min size of any block, includes meta_data
 #define IS_FREE_MASK 0x1
 #define SIZE_MASK (~IS_FREE_MASK)
 
@@ -294,7 +294,7 @@ void *realloc(void *ptr, size_t size) {
         return ptr;
     }
     
-    free(ptr);
+    // free(ptr);
     // Determine size to copy
     size_t copy_size = block_size < aligned_size ? block_size : aligned_size;
     // Alloc new block for the requested size
@@ -304,6 +304,6 @@ void *realloc(void *ptr, size_t size) {
     }
     // copy mem
     memcpy(new_ptr, ptr, copy_size);
-    // free(ptr);
+    free(ptr);
     return new_ptr;
 }
