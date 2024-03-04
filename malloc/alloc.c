@@ -18,7 +18,6 @@ typedef struct meta_data {
     struct meta_data *prev;
     // keeps track of free blocks, may not be in order
     struct meta_data *next_free;
-    struct meta_data *prev_free;
 } meta_data;
 
 // Global vars
@@ -123,6 +122,7 @@ void *malloc(size_t size) {
     // traverse to end and allocate
     meta_data *curr = head_free;
     meta_data *fit = NULL; // first fit free block
+    meta_data *prev = NULL;
 
     // traverse to end of list or first fit free block
     while (curr != NULL) {
@@ -130,28 +130,27 @@ void *malloc(size_t size) {
             fit = curr;
             break;
         }
-        curr = curr->next;
+        prev = curr;
+        curr = curr->next_free;
     }
 
     // Reuse block
     if (fit) {
         fit->is_free = 0;
-        // relinking free pointers
-        if (fit->next_free) {
-            // link next to prev
-            fit->next_free->prev_free = fit->prev_free;
-        } else {
+        // adjust end pointers
+        if (!fit->next_free) {
             // updating end
-            end_free = fit->prev_free;
+            end_free = prev;
         }
 
-        if (fit->prev_free) {
-            fit->prev_free->next_free = fit->next_free;
+        // check if head or mid list
+        if (prev) {
+            // mid list
+            prev->next_free = fit->next_free;
         } else {
             head_free = fit->next_free;
         }
         fit->next_free = NULL;
-        fit->prev_free = NULL;
         return (void *) (fit->ptr);
     }
     // Creating new block
@@ -172,7 +171,6 @@ void *malloc(size_t size) {
     block->next = NULL;
     block->prev = end;
     block->next_free = NULL;
-    block->prev_free = NULL;
 
     if (end) {
         end->next = block; // connect last block to newly alloced block
@@ -213,13 +211,12 @@ void free(void *ptr) {
     // mark block as free
     block->is_free = 1;
 
+    // add to end of free list
     if (!head_free) {
         head_free = block;
         end_free = block;
-        block->prev_free = NULL;
         block->next_free = NULL;
     } else {
-        block->prev_free = end_free;
         end_free->next_free = block; 
         block->next_free = NULL;
         end_free = block;
