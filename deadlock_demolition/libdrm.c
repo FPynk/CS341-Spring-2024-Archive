@@ -133,7 +133,7 @@ int drm_wait(drm_t *drm, pthread_t *thread_id) {
     printf("DRM_WAIT, drm_id: %p, thread_id: %lu\n", (void *)drm, *thread_id);
     /* Your code here */
     pthread_mutex_lock(&rag_lock);
-    printf("drm_wait, rag_locked\n");
+    printf("drm_wait, rag_locked by: %p\n", (void *)drm);
     // add thread as vertex if doesn't exist
     if (!graph_contains_vertex(rag, (void *) thread_id)) {
         graph_add_vertex(rag, (void *) thread_id);
@@ -151,7 +151,7 @@ int drm_wait(drm_t *drm, pthread_t *thread_id) {
     // no deadlock, lock drm
     pthread_mutex_lock(&drm->mutex);
     pthread_mutex_unlock(&rag_lock);
-    printf("drm_wait, rag_unlocked\n");
+    printf("drm_wait, rag_unlocked by: %p\n", (void *)drm);
     return 1;
 }
 
