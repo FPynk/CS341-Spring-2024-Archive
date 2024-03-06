@@ -79,7 +79,7 @@ void test_deadlock_detection() {
 
 int main() {
     // TODO your tests here
-    // test_single_thread_lock_unlock();
+    test_single_thread_lock_unlock();
     test_deadlock_detection();
     return 0;
 }
