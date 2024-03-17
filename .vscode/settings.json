@@ -6,6 +6,8 @@
         "string_view": "c",
         "initializer_list": "c",
         "utility": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "cracker2.h": "c",
+        "format.h": "c"
     }
 }

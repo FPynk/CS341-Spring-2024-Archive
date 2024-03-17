@@ -21,6 +21,11 @@ typedef struct {
     char known_part[9]; // known part + unknown part 8 chars + \0
 } task_details;
 
+typedef struct {
+    queue *q;
+    int thread_id;
+} thread_data;
+
 void push_sentinel_task(queue *q) {
     // null task similar to sentinel value for strings since queue has no empty() function 
     task_details *null_task = malloc(sizeof(task_details));
@@ -33,9 +38,10 @@ void push_sentinel_task(queue *q) {
 
 // Thread function handles memory freeing for queue
 void *worker_thread_fn(void *arg) {
-    queue *q = (queue *) arg;
+    thread_data *data = (thread_data *) arg;
+    queue *q = data->q;
     task_details *task;
-    pthread_t id = pthread_self();
+    pthread_t id = data->thread_id;
     struct crypt_data cdata;
     cdata.initialized = 0;
     //int q_cnt = 0;
@@ -143,14 +149,18 @@ int start(size_t thread_count) {
 
     // TODO: Create and manage threads to process each task
     pthread_t *threads = malloc(thread_count * sizeof(pthread_t));
+    thread_data *tdata = malloc(thread_count * sizeof(thread_data));
+
     if (!threads) {
         perror("Failed to alloc threads");
         return 1;
     }
     unsigned int total_successes = 0;
     for (size_t i = 0; i < thread_count; ++i) {
+        tdata[i].thread_id = i + 1;
+        tdata[i].q = q;
         // 1 worker thread to test
-        if (pthread_create(&threads[i], NULL, worker_thread_fn, q) != 0) {
+        if (pthread_create(&threads[i], NULL, worker_thread_fn, &tdata[i]) != 0) {
             perror("Failed to create worker thread");
             return 1;
         }
@@ -175,6 +185,7 @@ int start(size_t thread_count) {
     // memory management
     queue_destroy(q);
     free(threads);
+    free(tdata);
 
     return 0; // DO NOT change the return code since AG uses it to check if your
               // program exited normally
