@@ -31,6 +31,7 @@ typedef struct {
     char known_part[9]; // known part + unknown part 8 chars + \0
     int unknown_len;
     volatile bool *password_found;
+    volatile char **password; // actual password if found
     pthread_mutex_t *mutex;
     int total_threads;
     long start_index;   // index to start at
@@ -52,27 +53,44 @@ void *worker_thread_fn(void *arg) {
     thread_data *data = (thread_data *) arg;
 
     // ini local vars based on subrange and task details
-    char current_attempt[9];
-    setStringPosition(current_attempt, data->start_index);
+    char test_pass[9];
+    strncpy(test_pass, data->known_part, sizeof(test_pass));
+    // get pointer to unknown part and pass that to set string position
+    char *unknown_part = test_pass + getPrefixLength(test_pass);
+    setStringPosition(unknown_part, data->start_index);
+
+    // format prints
+    v2_print_thread_start(data->thread_id, data->username, data->start_index, test_pass);
+
     struct crypt_data cdata;
     cdata.initialized = 0;
-    for (long i = 0; i < data->count && !*(data->password_found); ++i) {
+    unsigned int *count = malloc(sizeof(unsigned int));
+    *count = 0;
+    int result = 2;
+    for (long i = 0; i < data->count; ++i) {
         pthread_mutex_lock(data->mutex);
         bool found = *(data->password_found);
         pthread_mutex_unlock(data->mutex);
 
-        if (found) break;
+        if (found) {
+            result = 1;
+            break;
+        }
         // generate hash and test
-        char *hash = crypt_r(current_attempt, SALT, &cdata);
+        char *hash = crypt_r(test_pass, SALT, &cdata);
+        (*count)++;
         if (strcmp(hash, data->password_hash) == 0) {
+            result = 0;
             pthread_mutex_lock(data->mutex);
             *(data->password_found) = true;
+            *(data->password) = strdup(test_pass);
             pthread_mutex_unlock(data->mutex);
+            break;
         }
-
-        incrementString(current_attempt);
+        incrementString(test_pass);
     }
-    return NULL;
+    v2_print_thread_result(data->thread_id, *count, result);
+    return (void *) count;
 }
 
 int start(size_t thread_count) {
@@ -129,13 +147,17 @@ int start(size_t thread_count) {
         // reset per new task
         v2_print_start_user(task->username);
         password_found = false;
-
+        volatile char *password = malloc(9 * sizeof(char));
+        password[0] = '\0';
+        double wall_start_time = getTime();
+        double CPU_start_time = getCPUTime();
         for (size_t i = 0; i < thread_count; ++i) {
             // thread data set up
             tdata[i].thread_id = i + 1;
             tdata[i].password_found = &password_found;
             tdata[i].mutex = &mutex_global;
             tdata[i].total_threads = thread_count;
+            tdata[i].password = &password;
             // copy task details
             strcpy(tdata[i].username, task->username);
             strcpy(tdata[i].password_hash, task->password_hash);
@@ -153,12 +175,26 @@ int start(size_t thread_count) {
                 return 1;
             }
         }
-
+        unsigned int total_hash = 0;
         for (size_t i = 0; i < thread_count; ++i) {
-            pthread_join(threads[i], NULL);
+            unsigned int *hash_cnt;
+            pthread_join(threads[i], (void **) &hash_cnt);
+            total_hash += *hash_cnt;
+            free(hash_cnt);
         }
+        double wall_end_time = getTime();
+        double CPU_end_time = getCPUTime();
+        double total_wall_time = wall_end_time - wall_start_time;
+        double CPU_ttl_time = CPU_end_time - CPU_start_time;
         // TODO: process results
-
+        int result = 1;
+        char temp_pass[9]; 
+        strcpy(temp_pass, (const char*)password); // intentional discard volatile
+        // printf("%s\n",temp_pass);
+        if (strcmp(temp_pass, "") != 0) {
+            result = 0;
+        }
+        v2_print_summary(task->username, temp_pass, total_hash, total_wall_time, CPU_ttl_time, result);
         // mem management
         free(task);
     }
