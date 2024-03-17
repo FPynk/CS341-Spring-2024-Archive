@@ -29,6 +29,13 @@ void *worker_thread_fn(void *arg) {
     struct crypt_data cdata;
     cdata.initialized = 0;
     //int q_cnt = 0;
+    // need this to return info to main
+    unsigned int *successes = malloc(sizeof(unsigned int));
+    if (successes == NULL) {
+        perror("Failed to alloc mem for succeses");
+        return NULL;
+    }
+    *successes = 0;
 
     while(1) {
         //printf("before pull\n");
@@ -52,30 +59,32 @@ void *worker_thread_fn(void *arg) {
         // fill with a's to start
         memset(test_pass + prefix_len, 'a', pw_len - prefix_len);
         test_pass[pw_len] = '\0';
-        bool found = 0;
+        bool result = 1;
         unsigned int hash_cnt = 0;
+        double start_thread_cpu_time = getThreadCPUTime();
         do {
             // gen hash of pw
             char *hash = crypt_r(test_pass, SALT, &cdata);
             // check if pw found
             if (strcmp(hash, task->password_hash) == 0) {
-                found = 1;
-                printf("Password for %s is %s\n", task->username, test_pass);
+                result = 0;
+                (*successes)++;
+                // printf("Password for %s is %s\n", task->username, test_pass);
                 break;
             }
             hash_cnt++;
-            if (hash_cnt % 1000 == 0) {
-                printf("hash_cnt %u\n", hash_cnt);
-            }
+            // if (hash_cnt % 1000 == 0) {
+            //     printf("hash_cnt %u\n", hash_cnt);
+            // }
         } while (incrementString(test_pass + prefix_len)); // increment the unknown section
-
-        if (!found) {
-            printf("password not found\n");
-        }
-
+        double end_thread_cpu_time = getThreadCPUTime();
+        // if (result) {
+        //     printf("password not found\n");
+        // }
+        v1_print_thread_result(id, task->username, test_pass, hash_cnt, end_thread_cpu_time - start_thread_cpu_time, result);
         free(task); // free task
     }
-    return NULL;
+    return (void *) successes;
 }
 
 int start(size_t thread_count) {
@@ -98,7 +107,7 @@ int start(size_t thread_count) {
     strncpy(null_task->password_hash, "XXXXXXXXXXXXX", 14);
     strncpy(null_task->known_part, "XXXXXXXX", 9);
     // DEBUG Count
-    // unsigned int count = 0;
+    unsigned int count = 0;
 
     // read & parse input lines
     while (fgets(line, sizeof(line), stdin)) {
@@ -111,6 +120,7 @@ int start(size_t thread_count) {
             strncpy(new_task->password_hash, password_hash ,sizeof(new_task->password_hash));
             strncpy(new_task->known_part, known_part, sizeof(new_task->known_part));
             queue_push(q, new_task);
+            count++;
             //printf("%d\n", count++);
         } 
     }
@@ -126,19 +136,25 @@ int start(size_t thread_count) {
     // }
 
     // TODO: Create and manage threads to process each task
-    pthread_t worker_thread;
+    
 
+    pthread_t worker_thread;
+    unsigned int total_successes = 0;
     // 1 worker thread to test
     if (pthread_create(&worker_thread, NULL, worker_thread_fn, q) != 0) {
         perror("Failed to create worker thread");
         return 1;
     }
     // wait for worker thread to finish
-    if (pthread_join(worker_thread, NULL) != 0) {
+    unsigned int *thread_successes;
+    if (pthread_join(worker_thread, (void **) &thread_successes) != 0) {
         perror("Failed ot join worker thread");
         return 1;
+    } else {
+        total_successes += *thread_successes;
+        free(thread_successes);
     }
-
+    v1_print_summary(total_successes, count - total_successes);
     // memory management
     queue_destroy(q);
 
