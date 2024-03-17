@@ -82,6 +82,7 @@ void *worker_thread_fn(void *arg) {
         do {
             // gen hash of pw
             char *hash = crypt_r(test_pass, SALT, &cdata);
+            hash_cnt++; // should fix hash cnt issue
             // check if pw found
             if (strcmp(hash, task->password_hash) == 0) {
                 result = 0;
@@ -89,7 +90,6 @@ void *worker_thread_fn(void *arg) {
                 // printf("Password for %s is %s\n", task->username, test_pass);
                 break;
             }
-            hash_cnt++;
             // if (hash_cnt % 1000 == 0) {
             //     printf("hash_cnt %u\n", hash_cnt);
             // }
