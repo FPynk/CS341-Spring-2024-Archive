@@ -83,7 +83,7 @@ void *worker_thread_fn(void *arg) {
             result = 0;
             pthread_mutex_lock(data->mutex);
             *(data->password_found) = true;
-            *(data->password) = strdup(test_pass);
+            strcpy((char *) *(data->password), (test_pass));
             pthread_mutex_unlock(data->mutex);
             break;
         }
@@ -140,7 +140,6 @@ int start(size_t thread_count) {
         // pull new task and check for sentinel value
         task_details *task = queue_pull(q);
         if (strcmp(task->username, "XXXXXXXX") == 0) {
-            push_sentinel_task(q);
             free(task);
             break;
         }
@@ -189,13 +188,14 @@ int start(size_t thread_count) {
         // TODO: process results
         int result = 1;
         char temp_pass[9]; 
-        strcpy(temp_pass, (const char*)password); // intentional discard volatile
+        strcpy(temp_pass, (const char*) password); // intentional discard volatile
         // printf("%s\n",temp_pass);
         if (strcmp(temp_pass, "") != 0) {
             result = 0;
         }
         v2_print_summary(task->username, temp_pass, total_hash, total_wall_time, CPU_ttl_time, result);
         // mem management
+        free((char *) password);
         free(task);
     }
     
