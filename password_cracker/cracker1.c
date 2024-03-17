@@ -182,6 +182,8 @@ int start(size_t thread_count) {
         //printf("Join for loop end %ld\n", i);
     }
     v1_print_summary(total_successes, count - total_successes);
+    task_details *last_task = queue_pull(q);
+    free(last_task);
     // memory management
     queue_destroy(q);
     free(threads);

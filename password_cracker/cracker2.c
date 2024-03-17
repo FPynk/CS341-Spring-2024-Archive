@@ -7,6 +7,7 @@
 #include <string.h>
 #include <crypt.h>
 #include <pthread.h>
+#include <math.h>
 
 #include "cracker2.h"
 #include "format.h"
@@ -15,7 +16,7 @@
 
 #define SALT "xx"
 volatile bool password_found = false;
-// pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_global = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct {
     char username[9]; // names 8 char + \0
@@ -32,8 +33,8 @@ typedef struct {
     volatile bool *password_found;
     pthread_mutex_t *mutex;
     int total_threads;
-    long start_index;
-    long count;
+    long start_index;   // index to start at
+    long count;         // no of PWs to try
 } thread_data;
 
 void push_sentinel_task(queue *q) {
@@ -46,10 +47,33 @@ void push_sentinel_task(queue *q) {
     queue_push(q, null_task);
 }
 
-// // Thread function handles memory freeing for queue
-// void *worker_thread_fn(void *arg) {
+// Thread function handles memory freeing for queue
+void *worker_thread_fn(void *arg) {
+    thread_data *data = (thread_data *) arg;
 
-// }
+    // ini local vars based on subrange and task details
+    char current_attempt[9];
+    setStringPosition(current_attempt, data->start_index);
+    struct crypt_data cdata;
+    cdata.initialized = 0;
+    for (long i = 0; i < data->count && !*(data->password_found); ++i) {
+        pthread_mutex_lock(data->mutex);
+        bool found = *(data->password_found);
+        pthread_mutex_unlock(data->mutex);
+
+        if (found) break;
+        // generate hash and test
+        char *hash = crypt_r(current_attempt, SALT, &cdata);
+        if (strcmp(hash, data->password_hash) == 0) {
+            pthread_mutex_lock(data->mutex);
+            *(data->password_found) = true;
+            pthread_mutex_unlock(data->mutex);
+        }
+
+        incrementString(current_attempt);
+    }
+    return NULL;
+}
 
 int start(size_t thread_count) {
     printf("thread_count: %ld\n", thread_count);
@@ -93,45 +117,56 @@ int start(size_t thread_count) {
         return 1;
     }
 
-    // while (1)
-    // {
-    //     // pull new task and check for sentinel value
-    //     task_details *task = queue_pull(q);
-    //     if (strcmp(task->username, "XXXXXXXX") == 0) {
-    //         push_sentinel_task(q);
-    //         free(task);
-    //         break;
-    //     }
-    //     // reset per new task
-    //     v2_print_start_user(task->username);
-    //     password_found = false;
+    while (1)
+    {
+        // pull new task and check for sentinel value
+        task_details *task = queue_pull(q);
+        if (strcmp(task->username, "XXXXXXXX") == 0) {
+            push_sentinel_task(q);
+            free(task);
+            break;
+        }
+        // reset per new task
+        v2_print_start_user(task->username);
+        password_found = false;
 
-    //     for (size_t i = 0; i < thread_count; ++i) {
-    //         // thread data set up
-    //         tdata[i].thread_id = i + 1;
-    //         tdata[i].password_found = &password_found;
-    //         tdata[i].mutex = &mutex;
-    //         tdata[i].total_threads = thread_count;
-    //         // copy task details
-    //         strcpy(tdata[i].username, task->username);
-    //         strcpy(tdata[i].password_hash, task->password_hash);
-    //         strcpy(tdata[i].known_part, task->known_part);
+        for (size_t i = 0; i < thread_count; ++i) {
+            // thread data set up
+            tdata[i].thread_id = i + 1;
+            tdata[i].password_found = &password_found;
+            tdata[i].mutex = &mutex_global;
+            tdata[i].total_threads = thread_count;
+            // copy task details
+            strcpy(tdata[i].username, task->username);
+            strcpy(tdata[i].password_hash, task->password_hash);
+            strcpy(tdata[i].known_part, task->known_part);
 
-    //         // calc subrange
-    //         int unknown_len = strlen(task->known_part) - getPrefixLength(task->known_part);
-    //         tdata[i].unknown_len = unknown_len;
-    //         long total_combos = (long) pow(26, unknown_len);
-    //         // set range of each thread
-    //         getSubrange(unknown_len, thread_count, i + 1, &tdata[i].start_index, &tdata[i].count);
-    //     }
+            // calc subrange
+            int unknown_len = strlen(task->known_part) - getPrefixLength(task->known_part);
+            tdata[i].unknown_len = unknown_len;
+            // long total_combos = (long) pow(26, unknown_len);
+            // set range of each thread
+            getSubrange(unknown_len, thread_count, i + 1, &tdata[i].start_index, &tdata[i].count);
 
-    // }
+            if (pthread_create(&threads[i], NULL, worker_thread_fn, &tdata[i]) != 0) {
+                perror("failed to create thread");
+                return 1;
+            }
+        }
+
+        for (size_t i = 0; i < thread_count; ++i) {
+            pthread_join(threads[i], NULL);
+        }
+        // TODO: process results
+
+        // mem management
+        free(task);
+    }
     
-    
-
     // memory management
     queue_destroy(q);
-
+    free(threads);
+    free(tdata);
     return 0; // DO NOT change the return code since AG uses it to check if your
               // program exited normally
 }
