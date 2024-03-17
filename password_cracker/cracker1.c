@@ -31,12 +31,15 @@ int start(size_t thread_count) {
     char known_part[9];
 
     // queue set up
-    queue *q = queue_create(10000);
+    queue *q = queue_create(10001); // fit null value
     // null task similar to sentinel value for strings since queue has no empty() function 
     task_details *null_task = malloc(sizeof(task_details));
+    if (!null_task) exit(1);
     strncpy(null_task->username, "XXXXXXXX", 9);
     strncpy(null_task->password_hash, "XXXXXXXXXXXXX", 14);
     strncpy(null_task->known_part, "XXXXXXXX", 9);
+    // DEBUG Count
+    // unsigned int count = 0;
 
     // read & parse input lines
     while (fgets(line, sizeof(line), stdin)) {
@@ -49,11 +52,12 @@ int start(size_t thread_count) {
             strncpy(new_task->password_hash, password_hash ,sizeof(new_task->password_hash));
             strncpy(new_task->known_part, known_part, sizeof(new_task->known_part));
             queue_push(q, new_task);
+            //printf("%d\n", count++);
         } 
     }
-
+    //printf("End of while\n");
     queue_push(q, null_task);
-
+    //printf("Pushed null\n");
     // DEBUG: Print out contents of queue to ensure all details added correctly
     task_details *curr_task = (task_details *) queue_pull(q); // pull, cast and deref
     while (strcmp(curr_task->username, null_task->username)) {
