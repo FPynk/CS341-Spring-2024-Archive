@@ -21,6 +21,16 @@ typedef struct {
     char known_part[9]; // known part + unknown part 8 chars + \0
 } task_details;
 
+void push_sentinel_task(queue *q) {
+    // null task similar to sentinel value for strings since queue has no empty() function 
+    task_details *null_task = malloc(sizeof(task_details));
+    if (!null_task) exit(1);
+    strncpy(null_task->username, "XXXXXXXX", 9);
+    strncpy(null_task->password_hash, "XXXXXXXXXXXXX", 14);
+    strncpy(null_task->known_part, "XXXXXXXX", 9);
+    queue_push(q, null_task);
+}
+
 // Thread function handles memory freeing for queue
 void *worker_thread_fn(void *arg) {
     queue *q = (queue *) arg;
@@ -43,6 +53,7 @@ void *worker_thread_fn(void *arg) {
         //printf("pull cnt: %d\n", q_cnt++);
         // check if null task to terminate the thread
         if (strcmp(task->username, "XXXXXXXX") == 0) {
+            push_sentinel_task(q);
             free(task);
             break;
         }
@@ -100,12 +111,6 @@ int start(size_t thread_count) {
 
     // queue set up
     queue *q = queue_create(10001); // fit null value
-    // null task similar to sentinel value for strings since queue has no empty() function 
-    task_details *null_task = malloc(sizeof(task_details));
-    if (!null_task) exit(1);
-    strncpy(null_task->username, "XXXXXXXX", 9);
-    strncpy(null_task->password_hash, "XXXXXXXXXXXXX", 14);
-    strncpy(null_task->known_part, "XXXXXXXX", 9);
     // DEBUG Count
     unsigned int count = 0;
 
@@ -125,7 +130,8 @@ int start(size_t thread_count) {
         } 
     }
     //printf("End of while\n");
-    queue_push(q, null_task);
+    // push sentinel value
+    push_sentinel_task(q);
     //printf("Pushed null\n");
     // // DEBUG: Print out contents of queue to ensure all details added correctly
     // task_details *curr_task = (task_details *) queue_pull(q); // pull, cast and deref
@@ -136,27 +142,39 @@ int start(size_t thread_count) {
     // }
 
     // TODO: Create and manage threads to process each task
-    
-
-    pthread_t worker_thread;
-    unsigned int total_successes = 0;
-    // 1 worker thread to test
-    if (pthread_create(&worker_thread, NULL, worker_thread_fn, q) != 0) {
-        perror("Failed to create worker thread");
+    pthread_t *threads = malloc(thread_count * sizeof(pthread_t));
+    if (!threads) {
+        perror("Failed to alloc threads");
         return 1;
     }
-    // wait for worker thread to finish
-    unsigned int *thread_successes;
-    if (pthread_join(worker_thread, (void **) &thread_successes) != 0) {
-        perror("Failed ot join worker thread");
-        return 1;
-    } else {
-        total_successes += *thread_successes;
-        free(thread_successes);
+    unsigned int total_successes = 0;
+    for (size_t i = 0; i < thread_count; ++i) {
+        // 1 worker thread to test
+        if (pthread_create(&threads[i], NULL, worker_thread_fn, q) != 0) {
+            perror("Failed to create worker thread");
+            return 1;
+        }
+        //printf("create for loop %ld\n", i);
+    }
+    //printf("all threads created\n");
+    for (size_t i = 0; i < thread_count; ++i) {
+        //printf("Join for loop begin %ld\n", i);
+        // wait for worker thread to finish
+        unsigned int *thread_successes;
+        if (pthread_join(threads[i], (void **) &thread_successes) != 0) {
+            perror("Failed to join worker thread");
+            return 1;
+        } else if (thread_successes != NULL) {
+            // printf("good join\n");
+            total_successes += *thread_successes;
+            free(thread_successes);
+        }
+        //printf("Join for loop end %ld\n", i);
     }
     v1_print_summary(total_successes, count - total_successes);
     // memory management
     queue_destroy(q);
+    free(threads);
 
     return 0; // DO NOT change the return code since AG uses it to check if your
               // program exited normally
