@@ -34,8 +34,8 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
     // long start_index;   // index to start at
     // long count;         // no of PWs to try
 typedef struct {
-    pthread_mutex_t *task_mutex;
-    pthread_cond_t *task_cond;
+    pthread_mutex_t task_mutex;
+    pthread_cond_t task_cond;
     char username[9]; // names 8 char + \0
     char password_hash[14]; // hashes 13 chars + \0
     char known_part[9]; // known part + unknown part 8 chars + \0
