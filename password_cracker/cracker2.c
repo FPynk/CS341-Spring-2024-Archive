@@ -34,8 +34,8 @@ pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
     // long start_index;   // index to start at
     // long count;         // no of PWs to try
 typedef struct {
-    pthread_mutex_t task_mutex;
-    pthread_cond_t task_cond;
+    pthread_mutex_t *task_mutex;
+    pthread_cond_t *task_cond;
     char username[9]; // names 8 char + \0
     char password_hash[14]; // hashes 13 chars + \0
     char known_part[9]; // known part + unknown part 8 chars + \0
@@ -58,7 +58,10 @@ typedef struct {
     int thread_id;
 } thread_data;
 
-void push_sentinel_task(queue *q, size_t thread_count) {
+pthread_mutex_t pull_mutex = PTHREAD_MUTEX_INITIALIZER;
+task_details *curr_task = NULL;
+
+task_details *push_sentinel_task(queue *q, size_t thread_count) {
     // null task similar to sentinel value for strings since queue has no empty() function 
     task_details *null_task = malloc(sizeof(task_details));
     if (!null_task) exit(1);
@@ -66,7 +69,9 @@ void push_sentinel_task(queue *q, size_t thread_count) {
     strncpy(null_task->password_hash, "XXXXXXXXXXXXX", 14);
     strncpy(null_task->known_part, "XXXXXXXX", 9);
     null_task->use_count = thread_count; // when 0 it means you're the last person who should be touching this task
+    null_task->delete_count = thread_count;
     queue_push(q, null_task);
+    return null_task;
 }
 
 void *worker_thread_fn(void *arg) {
@@ -80,31 +85,35 @@ void *worker_thread_fn(void *arg) {
     // count hashes
     while(1) {
         //printf("before pull\n");
-        task = (task_details *) queue_pull(q);
-        // Check if NULL sentinel task, decrement use_count
-        if (strcmp(task->username, "XXXXXXXX") == 0) {
-            // Break and exit out of loop so it can join with main
+        pthread_mutex_lock(&pull_mutex);
+        // not first
+        if (curr_task != NULL) {
+            task = curr_task;
             pthread_mutex_lock(&task->task_mutex);
             task->use_count--;
-            // last thread to do so must free sentinel task
-            if (task->use_count == 0) {
-                free(task);
-            }
+            pthread_mutex_unlock(&task->task_mutex);
+        } else {
+            task = (task_details *) queue_pull(q);
+            curr_task = task;
+            pthread_mutex_lock(&task->task_mutex);
+            task->CPU_start = getCPUTime();
+            task->wall_start = getTime();
+            task->use_count--;
+            pthread_mutex_unlock(&task->task_mutex);
+        }
+        pthread_mutex_unlock(&pull_mutex);
+        // Check if NULL sentinel task, decrement use_count
+        if (strcmp(task->username, "XXXXXXXX") == 0) {
+            pthread_mutex_lock(&task->task_mutex);
+            // Break and exit out of loop so it can join with main
+            task->use_count--;
             pthread_mutex_unlock(&task->task_mutex);
             break;
         }
         
         //printf("pull cnt: %d\n", q_cnt++);
         // Check if first to grab task
-        pthread_mutex_lock(&task->task_mutex);
-        bool is_first = task->complete_count == task->total_threads;
-        task->use_count--;
-        pthread_mutex_unlock(&task->task_mutex);
         // if first: Update task start CPU and wall time
-        if (is_first) {
-            task->CPU_start = getCPUTime();
-            task->wall_start = getTime();
-        }
         // update use_count by minusing to count how many threads took task
         // If not first: update use_count
         
@@ -131,12 +140,19 @@ void *worker_thread_fn(void *arg) {
         int result = 2;
         int hash_count = 0;
         // Iterate and generate hashes for passwords
-        for (long i = 0; i < count && !task->password_found; ++i) { // might wanna shift this inside
+        for (long i = 0; i < count; ++i) { // might wanna shift this inside
             // IF password is found by self or others/ ran through all combos
             // Increment complete and wait for threads till all are complete and ready to move on
             // if password is found by self update password and password_found
             // someone else found it
             // generate hash and test
+            pthread_mutex_lock(&task->task_mutex);
+            if (task->password_found) {
+                pthread_mutex_unlock(&task->task_mutex);
+                break;
+            }
+            pthread_mutex_unlock(&task->task_mutex);
+
             char *hash = crypt_r(test_pass, SALT, &cdata);
             hash_count++;
             if (strcmp(hash, task->password_hash) == 0) {
@@ -154,7 +170,7 @@ void *worker_thread_fn(void *arg) {
             }
             incrementString(test_pass);
         }
-        if (hash_count < count) {
+        if (hash_count < count && result != 0) {
             result = 1;
         }
 
@@ -176,6 +192,7 @@ void *worker_thread_fn(void *arg) {
                              CPU_end - task->CPU_start, 
                              !task->password_found);
             // broadcast to wakeup
+            curr_task = NULL;
             pthread_cond_broadcast(&task->task_cond);
             pthread_mutex_unlock(&task->task_mutex);
         } else {
@@ -186,6 +203,7 @@ void *worker_thread_fn(void *arg) {
             pthread_mutex_unlock(&task->task_mutex);
         }
         // need to free task memory
+        pthread_mutex_lock(&pull_mutex);
         pthread_mutex_lock(&task->task_mutex);
         if (--task->delete_count == 0) {
             pthread_mutex_unlock(&task->task_mutex);
@@ -193,57 +211,11 @@ void *worker_thread_fn(void *arg) {
         } else {
             pthread_mutex_unlock(&task->task_mutex);
         }
+        pthread_mutex_unlock(&pull_mutex);
     }
+    
     return NULL;
 }
-
-// // DEPRECATED
-// // Thread function handles memory freeing for queue
-// void *worker_thread_fn(void *arg) {
-//     thread_data *data = (thread_data *) arg;
-
-//     // ini local vars based on subrange and task details
-//     char test_pass[9];
-//     strncpy(test_pass, data->known_part, sizeof(test_pass));
-//     // get pointer to unknown part and pass that to set string position
-//     char *unknown_part = test_pass + getPrefixLength(test_pass);
-//     setStringPosition(unknown_part, data->start_index);
-
-//     // grab task from q and decrement counter
-
-//     // format prints
-//     v2_print_thread_start(data->thread_id, data->username, data->start_index, test_pass);
-
-//     struct crypt_data cdata;
-//     cdata.initialized = 0;
-//     unsigned int *count = malloc(sizeof(unsigned int));
-//     *count = 0;
-//     int result = 2;
-//     for (long i = 0; i < data->count; ++i) {
-//         pthread_mutex_lock(data->mutex);
-//         bool found = *(data->password_found);
-//         pthread_mutex_unlock(data->mutex);
-
-//         if (found) {
-//             result = 1;
-//             break;
-//         }
-//         // generate hash and test
-//         char *hash = crypt_r(test_pass, SALT, &cdata);
-//         (*count)++;
-//         if (strcmp(hash, data->password_hash) == 0) {
-//             result = 0;
-//             pthread_mutex_lock(data->mutex);
-//             *(data->password_found) = true;
-//             strcpy((char *) *(data->password), (test_pass));
-//             pthread_mutex_unlock(data->mutex);
-//             break;
-//         }
-//         incrementString(test_pass);
-//     }
-//     v2_print_thread_result(data->thread_id, *count, result);
-//     return (void *) count;
-// }
 
 int start(size_t thread_count) {
     printf("thread_count: %ld\n", thread_count);
@@ -289,7 +261,7 @@ int start(size_t thread_count) {
         }
     }
     // push sentinel value
-    push_sentinel_task(q, thread_count);
+    task_details *null_task = push_sentinel_task(q, thread_count);
     // TODO: Create and manage threads to process each task
     pthread_t *threads = malloc(thread_count * sizeof(pthread_t));
     thread_data *tdata = malloc(thread_count * sizeof(thread_data));
@@ -314,11 +286,13 @@ int start(size_t thread_count) {
             exit(1);
         }
     }
-    
+
     // memory management
+    free(null_task);
     queue_destroy(q);
     free(threads);
     free(tdata);
+
     return 0; // DO NOT change the return code since AG uses it to check if your
               // program exited normally
 }
