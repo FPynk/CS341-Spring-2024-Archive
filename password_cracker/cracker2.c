@@ -271,23 +271,72 @@ int start(size_t thread_count) {
         return 1;
     }
 
-    for (size_t i = 0; i < thread_count; ++i) {
-        tdata[i].thread_id = i + 1;
-        tdata[i].q = q;
-        if (pthread_create(&threads[i], NULL, worker_thread_fn, &tdata[i]) != 0) {
-            perror("failed to create thread");
-            return 1;
+    while (1)
+    {
+        // pull new task and check for sentinel value
+        task_details *task = queue_pull(q);
+        if (strcmp(task->username, "XXXXXXXX") == 0) {
+            free(task);
+            break;
         }
-    }
+        // reset per new task
+        v2_print_start_user(task->username);
+        password_found = false;
+        volatile char *password = malloc(9 * sizeof(char));
+        password[0] = '\0';
+        double wall_start_time = getTime();
+        double CPU_start_time = getCPUTime();
+        for (size_t i = 0; i < thread_count; ++i) {
+            // thread data set up
+            tdata[i].thread_id = i + 1;
+            tdata[i].password_found = &password_found;
+            tdata[i].mutex = &mutex_global;
+            tdata[i].total_threads = thread_count;
+            tdata[i].password = &password;
+            // copy task details
+            strcpy(tdata[i].username, task->username);
+            strcpy(tdata[i].password_hash, task->password_hash);
+            strcpy(tdata[i].known_part, task->known_part);
 
-    for (size_t i = 0; i < thread_count; ++i) {
-        if (pthread_join(threads[i], NULL) != 0) {
-            perror("Failed to join thread");
-            exit(1);
+            // calc subrange
+            int unknown_len = strlen(task->known_part) - getPrefixLength(task->known_part);
+            tdata[i].unknown_len = unknown_len;
+            // long total_combos = (long) pow(26, unknown_len);
+            // set range of each thread
+            getSubrange(unknown_len, thread_count, i + 1, &tdata[i].start_index, &tdata[i].count);
+
+            if (pthread_create(&threads[i], NULL, worker_thread_fn, &tdata[i]) != 0) {
+                perror("failed to create thread");
+                return 1;
+            }
         }
+        unsigned int total_hash = 0;
+        for (size_t i = 0; i < thread_count; ++i) {
+            unsigned int *hash_cnt;
+            pthread_join(threads[i], (void **) &hash_cnt);
+            total_hash += *hash_cnt;
+            free(hash_cnt);
+        }
+        double wall_end_time = getTime();
+        double CPU_end_time = getCPUTime();
+        double total_wall_time = wall_end_time - wall_start_time;
+        double CPU_ttl_time = CPU_end_time - CPU_start_time;
+        // TODO: process results
+        int result = 1;
+        char temp_pass[9]; 
+        strcpy(temp_pass, (const char*) password); // intentional discard volatile
+        // printf("%s\n",temp_pass);
+        if (strcmp(temp_pass, "") != 0) {
+            result = 0;
+        }
+        v2_print_summary(task->username, temp_pass, total_hash, total_wall_time, CPU_ttl_time, result);
+        // mem management
+        free((char *) password);
+        free(task);
     }
-
+    
     // memory management
+    free(null_task);
     free(null_task);
     queue_destroy(q);
     free(threads);
