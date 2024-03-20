@@ -52,6 +52,7 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
     assert(this);
     assert(pid < MAX_PROCESS_ID);
     assert(num_bytes + (virtual_address % PAGE_SIZE) <= PAGE_SIZE);
+    //printf("read\n");
     // TODO: Implement me!
     // setting up local vars
     tlb **tlb = &this->tlb;
@@ -94,8 +95,8 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
             //    Ask the kernel for a frame
             addr32 frame_addr = ask_kernel_for_frame(NULL);
             // Update the page directory entry’s present, read_write, and user_supervisor flags
-            read_page_from_disk(tlb_node_PTE);
             page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
+            read_page_from_disk((page_table_entry *) page_direc_entry);
             page_direc_entry->present = 1;
             page_direc_entry->read_write = 0; // MAY NEED TO CHANGE
             page_direc_entry->user_supervisor = 1;
@@ -114,7 +115,7 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
         read_page_from_disk(tlb_node_PTE);
         //     Update the page table entry’s present, read_write, and user_supervisor flags
         tlb_node_PTE->present = 1;
-        tlb_node_PTE->read_write = 0;
+        tlb_node_PTE->read_write = 1;
         tlb_node_PTE->user_supervisor = 1;
     }
     // Read the page from disk
@@ -134,6 +135,7 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
     assert(this);
     assert(pid < MAX_PROCESS_ID);
     assert(num_bytes + (virtual_address % PAGE_SIZE) <= PAGE_SIZE);
+    //printf("write\n");
     // TODO: Implement me!
     // setting up local vars
     tlb **tlb = &this->tlb;
@@ -173,11 +175,13 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
         if (page_direc_entry->present == 0) {
             //    Raise a page fault
             mmu_raise_page_fault(this);
+            //printf("write page fault\n");
             //    Ask the kernel for a frame
+            // printf("asking kernel for frame\n");
             addr32 frame_addr = ask_kernel_for_frame(NULL);
             // Update the page directory entry’s present, read_write, and user_supervisor flags
-            page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
-            read_page_from_disk(tlb_node_PTE);
+            page_direc_entry->base_addr = (frame_addr >> NUM_OFFSET_BITS);
+            read_page_from_disk((page_table_entry *)page_direc_entry);
             page_direc_entry->present = 1;
             page_direc_entry->read_write = 1; // MAY NEED TO CHANGE
             page_direc_entry->user_supervisor = 1;
@@ -191,6 +195,7 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
     if (tlb_node_PTE && tlb_node_PTE->present == 0) {
         //     Raise a page fault
         mmu_raise_page_fault(this);
+        // printf("asking kernel for frame page table\n");
         //     Ask the kernel for a frame
         tlb_node_PTE->base_addr = (ask_kernel_for_frame(tlb_node_PTE) >> NUM_OFFSET_BITS);
         //     Update the page table entry’s present, read_write, and user_supervisor flags
@@ -216,6 +221,7 @@ void mmu_tlb_miss(mmu *this) {
 }
 
 void mmu_raise_page_fault(mmu *this) {
+    //printf("page fault\n");
     this->num_page_faults++;
 }
 
