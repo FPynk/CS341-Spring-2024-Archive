@@ -8,7 +8,39 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+/*
+tlb is a singly linked list with virt addr as key and phy addr as val
+    tlb_flush() in tlb.h 
+    - Clear tlb data
+    tlb_add_pte() in tlb.h
+    - add node to SLL, removes LRU If cap
+    tlb_get_pte() in tlb.h
+    - gets node of virt addr, update LRU and return NULL if not found
 
+mmu struct of 2 arrays for page direcs + segs for each proc, also has tlb
+    mmu_raise_segmentation_fault() in mmu.h
+    - raises seg fault, proc tries invalid or illegal mem addr, not in any seg or no perms
+    mmu_tlb_miss() in mmu.h
+    - raises tlb miss
+    mmu_raise_page_fault() in mmu.h
+    - raise page fault, use when proc tries access to page not mapped on phy mem
+
+kernel char array for phy mem that is very large, has mapping for table entry to page
+    ask_kernel_for_frame() in kernel.h
+    - returns phy addr for an entry, like malloc
+    get_system_pointer_from_pde() in kernel.h
+    - conv base addr of page table pointed by page direc entry into addr for machine
+    read_page_from_disk() in kernel.h
+    - read page of phy mem on disk
+    get_system_pointer_from_address() in kernel.h
+    - conv addr of sim phy mem to addr used by machine
+
+segments, struct with start and end addr of a segment in virt mem, perms and grow direc
+    find_segment() in segments.h
+    - find segment in virt mem space that contains given addr
+    address_in_segmentations() in segments.h
+    - check if addr exists within segment of virt mem
+*/
 mmu *mmu_create() {
     mmu *my_mmu = calloc(1, sizeof(mmu));
     my_mmu->tlb = tlb_create();
@@ -21,7 +53,79 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
     assert(pid < MAX_PROCESS_ID);
     assert(num_bytes + (virtual_address % PAGE_SIZE) <= PAGE_SIZE);
     // TODO: Implement me!
+    // setting up local vars
+    tlb **tlb = &this->tlb;
+    page_directory *page_direc = this->page_directories[pid];
+    vm_segmentations *segs = this->segmentations[pid];
+    // decomposing virtual addr
+    uint32_t page_direc_idx = virtual_address >> 22;
+    uint32_t page_table_idx = (virtual_address >> NUM_OFFSET_BITS) & 0x3FF;
+    uint32_t page_offset = virtual_address & 0xFFF;
+
+    // Use pid to check for a context switch. If there was a switch, flush the TLB
+    bool is_switch = pid != this->curr_pid;
+    if (is_switch) {
+        tlb_flush(tlb);
+        this->curr_pid = pid;
+    }
+    // Make sure that the address is in one of the segmentations. If not, raise a segfault and return
+    if (!address_in_segmentations(segs, virtual_address)) {
+        mmu_raise_segmentation_fault(this);
+        return;
+    }
+    // Check has proper perms, not needed since there is only R/W and R. TODO for write
+    vm_segmentation *curr_seg = find_segment(segs, virtual_address);
+    addr32 perms = curr_seg->permissions;
+    if (!(perms & READ)) { // READ comes from segment.h
+        mmu_raise_segmentation_fault(this);
+        return;
+    }
+ 
+    // Check the TLB for the page table entry. If it’s not there:
+    page_table_entry *tlb_node_PTE = tlb_get_pte(tlb, virtual_address & 0xFFFFF000);
+    if (tlb_node_PTE == NULL) {
+        //     Raise a TLB miss
+        mmu_tlb_miss(this);
+        //     Get the page directory entry. If it’s not present in memory:
+        page_directory_entry *page_direc_entry = &page_direc->entries[page_direc_idx];
+        if (page_direc_entry->present == 0) {
+            //    Raise a page fault
+            mmu_raise_page_fault(this);
+            //    Ask the kernel for a frame
+            addr32 frame_addr = ask_kernel_for_frame(NULL);
+            // Update the page directory entry’s present, read_write, and user_supervisor flags
+            page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
+            page_direc_entry->present = 1;
+            page_direc_entry->read_write = 0; // MAY NEED TO CHANGE
+            page_direc_entry->user_supervisor = 1;
+        }
+        //     Get the page table using the PDE
+        page_table *p_table = (page_table *) get_system_pointer_from_pde(page_direc_entry);
+        //     Get the page table entry from the page table. Add the entry to the TLB
+        tlb_node_PTE = &(p_table->entries[page_table_idx]);
+    }
+    // If the page table entry is not present in memory:
+    if (tlb_node_PTE && tlb_node_PTE->present == 0) {
+        //     Raise a page fault
+        mmu_raise_page_fault(this);
+        //     Ask the kernel for a frame
+        tlb_node_PTE->base_addr = (ask_kernel_for_frame(tlb_node_PTE) >> NUM_OFFSET_BITS);
+        //     Update the page table entry’s present, read_write, and user_supervisor flags
+        tlb_node_PTE->present = 1;
+        tlb_node_PTE->read_write = 0;
+        tlb_node_PTE->user_supervisor = 1;
+    }
+    // Read the page from disk
+    // Check that the user has permission to perform the read or write operation. If not, raise a segfault and return
+    // Use the page table entry’s base address and the offset of the virtual address to compute the physical address. Get a physical pointer from this address
+    // Perform the read or write operation
+    // Mark the PTE as accessed. If writing, also mark it as dirty.
+    tlb_node_PTE->accessed = 1;
+    void *mac_addr = get_system_pointer_from_pte(tlb_node_PTE) + page_offset;
+    memcpy(buffer, mac_addr, num_bytes);
+    tlb_add_pte(tlb, virtual_address & 0xFFFFF000, tlb_node_PTE);
 }
+
 
 void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
                                   const void *buffer, size_t num_bytes) {
@@ -29,6 +133,78 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
     assert(pid < MAX_PROCESS_ID);
     assert(num_bytes + (virtual_address % PAGE_SIZE) <= PAGE_SIZE);
     // TODO: Implement me!
+    // setting up local vars
+    tlb **tlb = &this->tlb;
+    page_directory *page_direc = this->page_directories[pid];
+    vm_segmentations *segs = this->segmentations[pid];
+    // decomposing virtual addr
+    uint32_t page_direc_idx = virtual_address >> 22;
+    uint32_t page_table_idx = (virtual_address >> NUM_OFFSET_BITS) & 0x3FF;
+    uint32_t page_offset = virtual_address & 0xFFF;
+
+    // Use pid to check for a context switch. If there was a switch, flush the TLB
+    bool is_switch = pid != this->curr_pid;
+    if (is_switch) {
+        tlb_flush(tlb);
+        this->curr_pid = pid;
+    }
+    // Make sure that the address is in one of the segmentations. If not, raise a segfault and return
+    if (!address_in_segmentations(segs, virtual_address)) {
+        mmu_raise_segmentation_fault(this);
+        return;
+    }
+    // Check has proper perms, not needed since there is only R/W and R. TODO for write
+    vm_segmentation *curr_seg = find_segment(segs, virtual_address);
+    addr32 perms = curr_seg->permissions;
+    if (!(perms & WRITE)) { // READ comes from segment.h
+        mmu_raise_segmentation_fault(this);
+        return;
+    }
+ 
+    // Check the TLB for the page table entry. If it’s not there:
+    page_table_entry *tlb_node_PTE = tlb_get_pte(tlb, virtual_address & 0xFFFFF000);
+    if (tlb_node_PTE == NULL) {
+        //     Raise a TLB miss
+        mmu_tlb_miss(this);
+        //     Get the page directory entry. If it’s not present in memory:
+        page_directory_entry *page_direc_entry = &page_direc->entries[page_direc_idx];
+        if (page_direc_entry->present == 0) {
+            //    Raise a page fault
+            mmu_raise_page_fault(this);
+            //    Ask the kernel for a frame
+            addr32 frame_addr = ask_kernel_for_frame(NULL);
+            // Update the page directory entry’s present, read_write, and user_supervisor flags
+            page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
+            page_direc_entry->present = 1;
+            page_direc_entry->read_write = 1; // MAY NEED TO CHANGE
+            page_direc_entry->user_supervisor = 1;
+        }
+        //     Get the page table using the PDE
+        page_table *p_table = (page_table *) get_system_pointer_from_pde(page_direc_entry);
+        //     Get the page table entry from the page table. Add the entry to the TLB
+        tlb_node_PTE = &(p_table->entries[page_table_idx]);
+    }
+    // If the page table entry is not present in memory:
+    if (tlb_node_PTE && tlb_node_PTE->present == 0) {
+        //     Raise a page fault
+        mmu_raise_page_fault(this);
+        //     Ask the kernel for a frame
+        tlb_node_PTE->base_addr = (ask_kernel_for_frame(tlb_node_PTE) >> NUM_OFFSET_BITS);
+        //     Update the page table entry’s present, read_write, and user_supervisor flags
+        tlb_node_PTE->present = 1;
+        tlb_node_PTE->read_write = 1;
+        tlb_node_PTE->user_supervisor = 1;
+    }
+    // Read the page from disk
+    // Check that the user has permission to perform the read or write operation. If not, raise a segfault and return
+    // Use the page table entry’s base address and the offset of the virtual address to compute the physical address. Get a physical pointer from this address
+    // Perform the read or write operation
+    // Mark the PTE as accessed. If writing, also mark it as dirty.
+    tlb_node_PTE->accessed = 1;
+    tlb_node_PTE->dirty = 1;
+    void *mac_addr = get_system_pointer_from_pte(tlb_node_PTE) + page_offset;
+    memcpy(mac_addr, buffer, num_bytes);
+    tlb_add_pte(tlb, virtual_address & 0xFFFFF000, tlb_node_PTE);
 }
 
 void mmu_tlb_miss(mmu *this) {
