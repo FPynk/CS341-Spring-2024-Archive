@@ -94,6 +94,7 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
             //    Ask the kernel for a frame
             addr32 frame_addr = ask_kernel_for_frame(NULL);
             // Update the page directory entry’s present, read_write, and user_supervisor flags
+            read_page_from_disk(tlb_node_PTE);
             page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
             page_direc_entry->present = 1;
             page_direc_entry->read_write = 0; // MAY NEED TO CHANGE
@@ -110,6 +111,7 @@ void mmu_read_from_virtual_address(mmu *this, addr32 virtual_address,
         mmu_raise_page_fault(this);
         //     Ask the kernel for a frame
         tlb_node_PTE->base_addr = (ask_kernel_for_frame(tlb_node_PTE) >> NUM_OFFSET_BITS);
+        read_page_from_disk(tlb_node_PTE);
         //     Update the page table entry’s present, read_write, and user_supervisor flags
         tlb_node_PTE->present = 1;
         tlb_node_PTE->read_write = 0;
@@ -175,6 +177,7 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
             addr32 frame_addr = ask_kernel_for_frame(NULL);
             // Update the page directory entry’s present, read_write, and user_supervisor flags
             page_direc_entry->base_addr = frame_addr >> NUM_OFFSET_BITS;
+            read_page_from_disk(tlb_node_PTE);
             page_direc_entry->present = 1;
             page_direc_entry->read_write = 1; // MAY NEED TO CHANGE
             page_direc_entry->user_supervisor = 1;
@@ -191,6 +194,7 @@ void mmu_write_to_virtual_address(mmu *this, addr32 virtual_address, size_t pid,
         //     Ask the kernel for a frame
         tlb_node_PTE->base_addr = (ask_kernel_for_frame(tlb_node_PTE) >> NUM_OFFSET_BITS);
         //     Update the page table entry’s present, read_write, and user_supervisor flags
+        read_page_from_disk(tlb_node_PTE);
         tlb_node_PTE->present = 1;
         tlb_node_PTE->read_write = 1;
         tlb_node_PTE->user_supervisor = 1;
