@@ -13,6 +13,7 @@
 
 #include <stdio.h>
 
+// PRINT FUNCTIONS
 // Helper for debugging
 void print_string_vec(vector *vec) {
     if (vec == NULL || vector_size(vec) == 0) {
@@ -25,13 +26,54 @@ void print_string_vec(vector *vec) {
     }
 }
 
-bool dfs_helper() {
-    return false;
+void D_print_string_vec(vector *vec) {
+    #ifdef DEBUG
+    print_string_vec(vec);
+    #endif
 }
 
-// Detects cycle in directed graph of starting vertex
-bool cycle_detect(graph *g, char *start_key) {
+void D_print(const char *message) {
+    #ifdef DEBUG
+    printf("%s", message);
+    fflush(stdout); // Immediately flush the output buffer after printing
+    #endif
+}
+
+// Memory:
+// Destroy neighboours VECTOR
+// Recursive DFS function
+bool dfs_helper(graph* g, char *node, set *visited, set *path) {
+    // base case, null
+    if (node == NULL) { return false; }
+    set_add(visited, node);
+    set_add(path, node); // rmmber to back track properly
+    vector *neighbours = graph_neighbors(g, node);
+    size_t n = vector_size(neighbours);
+    for (size_t i = 0 ; i < n; ++i) {
+        char *next = vector_get(neighbours, i);
+        // check if next node creates cycle
+        if (set_contains(path, next) || dfs_helper(g, next, visited, path)) {
+            vector_destroy(neighbours);
+            D_print("Cycle detected\n");
+            return true;
+        }
+    }
+    set_remove(path, node); // back track
+    vector_destroy(neighbours);
     return false;
+}
+// Memory:
+// Destroy visited, path
+// Detects cycle in directed graph of starting vertex
+// Sets up req sets for path and visited
+bool cycle_detect(graph *g, char *start_key) {
+    // Sets to store keys
+    set *visited = string_set_create(); // Tracks visited nodes
+    set *path = string_set_create(); // Tracks nodes in current path, must add and remove as per appropriate
+    bool result = dfs_helper(g, start_key, visited, path);
+    set_destroy(visited);
+    set_destroy(path);
+    return result;
 }
 
 // memory todos
@@ -54,12 +96,13 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     for (size_t i = 0; i < vector_size(goals); ++i) {
         char *key = vector_get(goals, i);
         // Detect cycle
-        bool cycle = false; // place holder
+        bool cycle = cycle_detect(d_graph, key); // place holder
         if (!cycle) {
+            D_print("No Cycle\n");
             vector_push_back(goals_clean, key);
         }
     }
-    print_string_vec(goals_clean);
+    D_print_string_vec(goals_clean);
 
     // Mem management
     graph_destroy(d_graph);
