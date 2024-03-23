@@ -39,6 +39,21 @@ void D_print(const char *message) {
     #endif
 }
 
+void D_print_string_int_dict(dictionary *d) {
+    #ifdef DEBUG
+    vector *keys = dictionary_keys(d);
+    vector *vals = dictionary_values(d);
+    if (keys == NULL || vector_size(keys) == 0 || vals == NULL || vector_size(vals) == 0) {
+        printf("Dictionary vectors null or empty\n");
+    }
+    for (size_t i = 0; i < vector_size(keys); ++i) {
+        printf("%s: %d\n", (char *) vector_get(keys, i), *((int *) vector_get(vals, i)));
+    }
+    vector_destroy(keys);
+    vector_destroy(vals);
+    #endif
+}
+
 // Memory:
 // Destroy neighboours VECTOR
 // Recursive DFS function
@@ -53,7 +68,7 @@ bool dfs_helper(graph* g, char *node, set *visited, set *path) {
     for (size_t i = 0 ; i < n; ++i) {
         char *next = vector_get(neighbours, i);
         // check if next node creates cycle
-        if (set_contains(path, next) || !set_contains(visited, next) && dfs_helper(g, next, visited, path)) {
+        if (set_contains(path, next) || (!set_contains(visited, next) && dfs_helper(g, next, visited, path))) {
             vector_destroy(neighbours);
             D_print("Cycle detected\n");
             return true;
@@ -76,23 +91,31 @@ bool cycle_detect(graph *g, char *start_key) {
     set_destroy(path);
     return result;
 }
-
+// Memory:
+// Destroy neighbours
 void out_counter_dfs_helper(dictionary *d, graph *g, char *node, set *visited) {
     // base case
     if (node == NULL) { return; }
     set_add(visited, node);
+    // Get out_deg (arrows going out) and set value in dictionary
+    int out_deg = graph_vertex_degree(g, node);
+    dictionary_set(d, node, (void *) &out_deg);
     vector *neighbours = graph_neighbors(g, node);
     size_t n = vector_size(neighbours);
     for (size_t i = 0 ; i < n; ++i) {
         char *next = vector_get(neighbours, i);
-        if (set)
-        out_counter_dfs_helper()
+        // recurse as per needed
+        if (!set_contains(visited, next)) {
+            out_counter_dfs_helper(d, g, next, visited);
+        }
     }
     vector_destroy(neighbours);
 }
-
+// Memory:
+// Destroy visited
+// Counts out degrees (dependencies of each rule)
 void out_counter_dfs(dictionary *d, graph *g, char *node) {
-    set *visited = string_set_create();
+    set *visited = string_set_create(); // destroy
     out_counter_dfs_helper(d, g, node, visited);
     set_destroy(visited);
 }
@@ -104,7 +127,7 @@ void out_counter_dfs(dictionary *d, graph *g, char *node) {
 // Must free: d_graph, goals, goals_clean
 
 // Global vars
-static queue *rule_q = NULL;
+// static queue *rule_q = NULL;
 
 int parmake(char *makefile, size_t num_threads, char **targets) {
     // good luck!
@@ -132,11 +155,12 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
 
     // process clean goals
     // Topological sort: Dictionary key: rule val: out degrees
-    dictionary *dict = string_to_int_dictionary_create();
+    dictionary *dict = string_to_int_dictionary_create(); // destroy this
     for (size_t i = 0; i < vector_size(goals_clean); ++i) {
         char *goal = vector_get(goals_clean, i);
         out_counter_dfs(dict, d_graph, goal);
     }
+    D_print_string_int_dict(dict);
     // from lowest to highest (need to track) insert into queue
 
 
@@ -144,5 +168,6 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     graph_destroy(d_graph);
     vector_destroy(goals);
     vector_destroy(goals_clean);
+    dictionary_destroy(dict);
     return 0;
 }
