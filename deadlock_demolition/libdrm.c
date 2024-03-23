@@ -65,7 +65,7 @@ bool is_graph_cyclic(graph *g) {
         }
     }
     visited = NULL;
-            recStack = NULL;
+    recStack = NULL;
     printf("no deadlock_detected, end of is_graph_cyclic\n");
     return false;
 }
