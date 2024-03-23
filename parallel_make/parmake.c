@@ -54,6 +54,18 @@ void D_print_string_int_dict(dictionary *d) {
     #endif
 }
 
+// BEWARE EDITS QUEUE
+void D_print_queue(queue *q) {
+    #ifdef DEBUG
+    char *rule = queue_pull(q);
+    while(strcmp(rule, "SENTINEL_VALUE") != 0) {
+        printf("%s\n", rule);
+        rule = queue_pull(q);
+    }
+    printf("%s\n", rule);
+    #endif
+}
+
 // Memory:
 // Destroy neighboours VECTOR
 // Recursive DFS function
@@ -98,7 +110,10 @@ void out_counter_dfs_helper(dictionary *d, graph *g, char *node, set *visited) {
     if (node == NULL) { return; }
     set_add(visited, node);
     // Get out_deg (arrows going out) and set value in dictionary
+    // int *out_deg = malloc(sizeof(int));
+    // *out_deg = graph_vertex_degree(g, node);
     int out_deg = graph_vertex_degree(g, node);
+    // dictionary_set(d, node, (void *) out_deg);
     dictionary_set(d, node, (void *) &out_deg);
     vector *neighbours = graph_neighbors(g, node);
     size_t n = vector_size(neighbours);
@@ -128,7 +143,7 @@ void out_counter_dfs(dictionary *d, graph *g, char *node) {
 // Must free: d_graph, goals, goals_clean
 
 // Global vars
-// static queue *rule_q = NULL;
+static queue *rule_q = NULL;
 
 int parmake(char *makefile, size_t num_threads, char **targets) {
     // good luck!
@@ -156,22 +171,60 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
 
     // process clean goals
     // Topological sort: Dictionary key: rule val: out degrees
-    // BEWARE: less dependencies =/= execute first, only true for 0 
+    // BEWARE: less dependencies =/= execute first, only true for 0
     dictionary *dict = string_to_int_dictionary_create(); // destroy this
     for (size_t i = 0; i < vector_size(goals_clean); ++i) {
         char *goal = vector_get(goals_clean, i);
         out_counter_dfs(dict, d_graph, goal);
     }
+    D_print("Dictionary:\n");
     D_print_string_int_dict(dict);
     // insert all 0 dependencies
     // once task complete, search for anti neighbours (rules depending on that node)
     // Update dictionary values for those neighbours
     // repeat pushing all 0 dependencies
+    rule_q = queue_create(-1); // destroy
+    vector *keys = dictionary_keys(dict); // destroy this
+    D_print("Dict keys:\n");
+    D_print_string_vec(keys);
+    while(!dictionary_empty(dict)) {
+        for (size_t i = 0; i < vector_size(keys); ++i) {
+            char *key = vector_get(keys, i);
+            // check key in dict, check val == 0
+            if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
+                // push rule to q, update dict
+                queue_push(rule_q, key);
+                printf("pushed %s to q\n", key);
+                // Note: if looking at goal will return vector of size 1 with ""
+                vector *dependents = graph_antineighbors(d_graph, key); // destroy
+                D_print("Dependents vec:\n");
+                D_print_string_vec(dependents);
+                for (size_t j = 0; j < vector_size(dependents); ++j) {
+                    char *dependent = vector_get(dependents, j);
+                    // check (to deal with avoiding "")
 
+                    if (dictionary_contains(dict, dependent)) {
+                        printf("updating %s\n", dependent);
+                        // grab dependency count and decrement
+                        key_value_pair kv = dictionary_at(dict, dependent);
+                        *((int *)(*kv.value)) -= 1;
+                        int count = *((int *)(*kv.value));
+                        printf("Updated %s to %d\n", dependent, count);
+                    }
+                }
+                dictionary_remove(dict, key);
+                vector_destroy(dependents);
+            }
+        }
+    }
+    queue_push(rule_q, "SENTINEL_VALUE");
+    D_print_queue(rule_q);
     // Mem management
     graph_destroy(d_graph);
     vector_destroy(goals);
     vector_destroy(goals_clean);
     dictionary_destroy(dict);
+    vector_destroy(keys);
+    queue_destroy(rule_q);
     return 0;
 }
