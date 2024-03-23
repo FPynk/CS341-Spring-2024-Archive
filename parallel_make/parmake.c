@@ -114,6 +114,7 @@ void out_counter_dfs_helper(dictionary *d, graph *g, char *node, set *visited) {
 // Memory:
 // Destroy visited
 // Counts out degrees (dependencies of each rule)
+// returns max_out , cumulative dependency
 void out_counter_dfs(dictionary *d, graph *g, char *node) {
     set *visited = string_set_create(); // destroy
     out_counter_dfs_helper(d, g, node, visited);
@@ -155,14 +156,17 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
 
     // process clean goals
     // Topological sort: Dictionary key: rule val: out degrees
+    // BEWARE: less dependencies =/= execute first, only true for 0 
     dictionary *dict = string_to_int_dictionary_create(); // destroy this
     for (size_t i = 0; i < vector_size(goals_clean); ++i) {
         char *goal = vector_get(goals_clean, i);
         out_counter_dfs(dict, d_graph, goal);
     }
     D_print_string_int_dict(dict);
-    // from lowest to highest (need to track) insert into queue
-
+    // insert all 0 dependencies
+    // once task complete, search for anti neighbours (rules depending on that node)
+    // Update dictionary values for those neighbours
+    // repeat pushing all 0 dependencies
 
     // Mem management
     graph_destroy(d_graph);
