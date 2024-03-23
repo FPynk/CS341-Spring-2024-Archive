@@ -42,6 +42,7 @@ void D_print(const char *message) {
 // Memory:
 // Destroy neighboours VECTOR
 // Recursive DFS function
+// stack used is function call stack
 bool dfs_helper(graph* g, char *node, set *visited, set *path) {
     // base case, null
     if (node == NULL) { return false; }
@@ -52,7 +53,7 @@ bool dfs_helper(graph* g, char *node, set *visited, set *path) {
     for (size_t i = 0 ; i < n; ++i) {
         char *next = vector_get(neighbours, i);
         // check if next node creates cycle
-        if (set_contains(path, next) || dfs_helper(g, next, visited, path)) {
+        if (set_contains(path, next) || !set_contains(visited, next) && dfs_helper(g, next, visited, path)) {
             vector_destroy(neighbours);
             D_print("Cycle detected\n");
             return true;
@@ -76,11 +77,34 @@ bool cycle_detect(graph *g, char *start_key) {
     return result;
 }
 
+void out_counter_dfs_helper(dictionary *d, graph *g, char *node, set *visited) {
+    // base case
+    if (node == NULL) { return; }
+    set_add(visited, node);
+    vector *neighbours = graph_neighbors(g, node);
+    size_t n = vector_size(neighbours);
+    for (size_t i = 0 ; i < n; ++i) {
+        char *next = vector_get(neighbours, i);
+        if (set)
+        out_counter_dfs_helper()
+    }
+    vector_destroy(neighbours);
+}
+
+void out_counter_dfs(dictionary *d, graph *g, char *node) {
+    set *visited = string_set_create();
+    out_counter_dfs_helper(d, g, node, visited);
+    set_destroy(visited);
+}
+
 // memory todos
 // Notes: goal clean is deep copy of goals, push_back makes deep copies
 // Need to free?: 
 // Likely need to free: 
 // Must free: d_graph, goals, goals_clean
+
+// Global vars
+static queue *rule_q = NULL;
 
 int parmake(char *makefile, size_t num_threads, char **targets) {
     // good luck!
@@ -96,13 +120,25 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     for (size_t i = 0; i < vector_size(goals); ++i) {
         char *key = vector_get(goals, i);
         // Detect cycle
-        bool cycle = cycle_detect(d_graph, key); // place holder
+        bool cycle = cycle_detect(d_graph, key);
         if (!cycle) {
             D_print("No Cycle\n");
             vector_push_back(goals_clean, key);
+        } else {
+            print_cycle_failure(key);
         }
     }
     D_print_string_vec(goals_clean);
+
+    // process clean goals
+    // Topological sort: Dictionary key: rule val: out degrees
+    dictionary *dict = string_to_int_dictionary_create();
+    for (size_t i = 0; i < vector_size(goals_clean); ++i) {
+        char *goal = vector_get(goals_clean, i);
+        out_counter_dfs(dict, d_graph, goal);
+    }
+    // from lowest to highest (need to track) insert into queue
+
 
     // Mem management
     graph_destroy(d_graph);
