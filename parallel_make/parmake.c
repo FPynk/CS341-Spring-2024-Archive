@@ -15,6 +15,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <time.h>
+
+// Global vars
+static queue *rule_q = NULL;
 
 // PRINT FUNCTIONS
 // Helper for debugging
@@ -146,6 +151,41 @@ bool is_file(char *rule) {
     return access(rule, F_OK) == 0 ? 1 : 0;
 }
 
+// return false if all dependencies are files and NONE are modified later
+// return true if a dependency is NOT a file or if a file dependency is modified later
+bool file_dependency_check(rule_t *rule_data, graph *g) {
+    struct stat target_stat;
+    if (stat(rule_data->target, &target_stat) != 0) {
+        perror("Failed to get target file stats");
+        return false;
+    }
+    vector *dependencies = graph_neighbors(g, rule_data->target); // destroy
+    for (size_t j = 0; j < vector_size(dependencies); ++j) {
+        char *dependency = vector_get(dependencies, j);
+        // check depency is file
+        if (!is_file(dependency)) {
+            vector_destroy(dependencies);
+            return true;
+        } else {
+            // get stat, return true if modified later by 1s
+            struct stat dep_stat;
+            if (stat(dependency, &dep_stat) != 0) {
+                perror("Failed to get dependency file stats");
+                continue;
+            }
+            if (difftime(dep_stat.st_mtime, target_stat.st_mtime) > 0) {
+                //printf("dep file has later mod time\n");
+                return true;
+            }
+            //printf("dep file has sooner or same mod time\n");
+        }
+    }
+    // all dependents satisfied
+    vector_destroy(dependencies);
+    return false;
+}
+
+// attempts to run all commands in the vector, returns -1 if any failed and 0 if all success
 int run_cmds(vector *cmd_vec) {
     if (cmd_vec == NULL || vector_size(cmd_vec) == 0) {
         D_print("cmd_vec is NULL or empty\n");
@@ -158,14 +198,46 @@ int run_cmds(vector *cmd_vec) {
     return result;
 }
 
+int can_satisfy(rule_t *rule_data, graph *g) {
+    char *rule = rule_data->target;
+    vector *dependencies = graph_neighbors(g, rule); // destroy
+    for (size_t j = 0; j < vector_size(dependencies); ++j) {
+        char *dependency = vector_get(dependencies, j);
+        rule_t *dependency_data = graph_get_vertex_value(g, dependency);
+        // if dependent not satisfied return its status
+        if (dependency_data->state != 1) {
+            // if not yet touched re q to get touched
+            if (dependency_data->state == 0) {
+                // queue_push(rule_q, strdup(dependency));
+                queue_push(rule_q, dependency);
+            }
+            vector_destroy(dependencies);
+            return dependency_data->state;
+        }
+    }
+    // all dependents satisfied
+    vector_destroy(dependencies);
+    return 1;
+}
+
+int exec_rule(rule_t *rule_data) {
+    vector *cmds = rule_data->commands;
+    int status = run_cmds(cmds);
+    if (status == 0) {
+        rule_data->state = 1;
+    } else if (status == -1) {
+        rule_data->state = -1;
+    } else {
+        D_print("Sanity check failed status");
+    }
+    return rule_data->state;
+}
+
 // memory todos
 // Notes: goal clean is deep copy of goals, push_back makes deep copies
 // Need to free?: 
 // Likely need to free: 
 // Must free: d_graph, goals, goals_clean
-
-// Global vars
-static queue *rule_q = NULL;
 
 int parmake(char *makefile, size_t num_threads, char **targets) {
     // good luck!
@@ -252,22 +324,34 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     while(strcmp(rule, "SENTINEL_VALUE") != 0) {
         // execute rule, update state: -1 failed/not satisfied, 0 not touched, 1 satisfied
         // -1: mark current rule as -1 and do not re add to queue
-        // 0: readd dependency to queue (should not happen)
+        // 0: re-add dependency to queue (should not happen)
         // 1: continue to run rule
-
-        // V1 do not check satisfaction, just run
-        // execute rule
+        // V2 check satisfaction
         rule_t *rule_data = graph_get_vertex_value(d_graph, rule);
-        vector *cmds = rule_data->commands;
-        int status = run_cmds(cmds);
-        if (status == 0) {
+        int s_status = can_satisfy(rule_data, d_graph);
+        if (s_status == 1) {
+            // check if is file
+            if (is_file(rule)) {
+                //printf("rule is file\n");
+                // check if all deps are files and if any has newer mod time
+                if(file_dependency_check(rule_data, d_graph)) {
+                    //printf("file exe\n");
+                    exec_rule(rule_data);
+                } else {
+                    // if all files and all older, mark as done
+                    rule_data->state = 1;
+                }
+            } else {
+                // execute rule
+                exec_rule(rule_data); // sets state
+            }
+        } else if (s_status == 0) {
+            D_print("A dependency was not touched, we should not be here\n");
+            queue_push(rule_q, rule);
+        } else if (s_status == -1) {
             rule_data->state = 1;
-        } else if (status == -1) {
-            rule_data->state = -1;
-        } else {
-            D_print("Sanity check failed status");
-        }
-
+        } else { D_print("s_status undefined value\n"); }
+        
         // Mem manage and pull new queue
         free(rule);
         rule = queue_pull(rule_q);
