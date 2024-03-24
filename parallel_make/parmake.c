@@ -12,6 +12,7 @@
 #include "includes/queue.h"
 
 #include <stdio.h>
+#include <string.h>
 
 // PRINT FUNCTIONS
 // Helper for debugging
@@ -60,9 +61,11 @@ void D_print_queue(queue *q) {
     char *rule = queue_pull(q);
     while(strcmp(rule, "SENTINEL_VALUE") != 0) {
         printf("%s\n", rule);
+        free(rule);
         rule = queue_pull(q);
     }
     printf("%s\n", rule);
+    free(rule);
     #endif
 }
 
@@ -193,16 +196,17 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
             // check key in dict, check val == 0
             if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
                 // push rule to q, update dict
-                queue_push(rule_q, key);
+                // MUST FREE RULES FROM QUEUE ONCE PULLED, DYNAMICALLY ALLOCATED
+                char *rule = strdup(key);
+                queue_push(rule_q, rule);
                 printf("pushed %s to q\n", key);
                 // Note: if looking at goal will return vector of size 1 with ""
                 vector *dependents = graph_antineighbors(d_graph, key); // destroy
-                D_print("Dependents vec:\n");
-                D_print_string_vec(dependents);
+                // D_print("Dependents vec:\n");
+                // D_print_string_vec(dependents);
                 for (size_t j = 0; j < vector_size(dependents); ++j) {
                     char *dependent = vector_get(dependents, j);
                     // check (to deal with avoiding "")
-
                     if (dictionary_contains(dict, dependent)) {
                         printf("updating %s\n", dependent);
                         // grab dependency count and decrement
@@ -213,11 +217,15 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
                     }
                 }
                 dictionary_remove(dict, key);
+                vector_erase(keys, i);
                 vector_destroy(dependents);
             }
         }
     }
-    queue_push(rule_q, "SENTINEL_VALUE");
+    // dynamically allocated so all rules are dynamically allocated
+    char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
+    strcpy(sentinel_value, "SENTINEL_VALUE");
+    queue_push(rule_q, sentinel_value);
     D_print_queue(rule_q);
     // Mem management
     graph_destroy(d_graph);
