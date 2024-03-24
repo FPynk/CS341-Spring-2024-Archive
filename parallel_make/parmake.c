@@ -12,7 +12,9 @@
 #include "includes/queue.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // PRINT FUNCTIONS
 // Helper for debugging
@@ -58,6 +60,7 @@ void D_print_string_int_dict(dictionary *d) {
 // BEWARE EDITS QUEUE
 void D_print_queue(queue *q) {
     #ifdef DEBUG
+    printf("QUEUE CONTENTS:\n");
     char *rule = queue_pull(q);
     while(strcmp(rule, "SENTINEL_VALUE") != 0) {
         printf("%s\n", rule);
@@ -139,6 +142,22 @@ void out_counter_dfs(dictionary *d, graph *g, char *node) {
     set_destroy(visited);
 }
 
+bool is_file(char *rule) {
+    return access(rule, F_OK) == 0 ? 1 : 0;
+}
+
+int run_cmds(vector *cmd_vec) {
+    if (cmd_vec == NULL || vector_size(cmd_vec) == 0) {
+        D_print("cmd_vec is NULL or empty\n");
+        return 0;
+    }
+    int result = 0;
+    for (size_t i = 0; i < vector_size(cmd_vec) && result == 0; ++i) {
+        result = system((char *) vector_get(cmd_vec, i));
+    }
+    return result;
+}
+
 // memory todos
 // Notes: goal clean is deep copy of goals, push_back makes deep copies
 // Need to free?: 
@@ -199,7 +218,7 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
                 // MUST FREE RULES FROM QUEUE ONCE PULLED, DYNAMICALLY ALLOCATED
                 char *rule = strdup(key);
                 queue_push(rule_q, rule);
-                printf("pushed %s to q\n", key);
+                // printf("pushed %s to q\n", key);
                 // Note: if looking at goal will return vector of size 1 with ""
                 vector *dependents = graph_antineighbors(d_graph, key); // destroy
                 // D_print("Dependents vec:\n");
@@ -208,12 +227,12 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
                     char *dependent = vector_get(dependents, j);
                     // check (to deal with avoiding "")
                     if (dictionary_contains(dict, dependent)) {
-                        printf("updating %s\n", dependent);
+                        // printf("updating %s\n", dependent);
                         // grab dependency count and decrement
                         key_value_pair kv = dictionary_at(dict, dependent);
                         *((int *)(*kv.value)) -= 1;
-                        int count = *((int *)(*kv.value));
-                        printf("Updated %s to %d\n", dependent, count);
+                        // int count = *((int *)(*kv.value));
+                        // printf("Updated %s to %d\n", dependent, count);
                     }
                 }
                 dictionary_remove(dict, key);
@@ -226,7 +245,35 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
     strcpy(sentinel_value, "SENTINEL_VALUE");
     queue_push(rule_q, sentinel_value);
-    D_print_queue(rule_q);
+    // D_print_queue(rule_q); // prevenets mem errors while queue reaches end of code without emptying
+
+    // executing rules in q
+    char *rule = queue_pull(rule_q);
+    while(strcmp(rule, "SENTINEL_VALUE") != 0) {
+        // execute rule, update state: -1 failed/not satisfied, 0 not touched, 1 satisfied
+        // -1: mark current rule as -1 and do not re add to queue
+        // 0: readd dependency to queue (should not happen)
+        // 1: continue to run rule
+
+        // V1 do not check satisfaction, just run
+        // execute rule
+        rule_t *rule_data = graph_get_vertex_value(d_graph, rule);
+        vector *cmds = rule_data->commands;
+        int status = run_cmds(cmds);
+        if (status == 0) {
+            rule_data->state = 1;
+        } else if (status == -1) {
+            rule_data->state = -1;
+        } else {
+            D_print("Sanity check failed status");
+        }
+
+        // Mem manage and pull new queue
+        free(rule);
+        rule = queue_pull(rule_q);
+    }
+    free(rule);
+
     // Mem management
     graph_destroy(d_graph);
     vector_destroy(goals);
