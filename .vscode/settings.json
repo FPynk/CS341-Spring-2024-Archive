@@ -8,6 +8,7 @@
         "utility": "c",
         "string.h": "c",
         "cracker2.h": "c",
-        "format.h": "c"
+        "format.h": "c",
+        "types.h": "c"
     }
 }
