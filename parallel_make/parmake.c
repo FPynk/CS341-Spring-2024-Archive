@@ -234,7 +234,9 @@ int exec_rule(rule_t *rule_data) {
     } else if (status == -1) {
         rule_data->state = -1;
     } else {
-        D_print("Sanity check failed status");
+        D_print("Sanity check failed status\n");
+        printf("status: %d\n", status);
+        rule_data->state = -1;
     }
     return rule_data->state;
 }
@@ -243,7 +245,7 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
     while(!dictionary_empty(dict)) {
         for (size_t i = 0; i < vector_size(keys); ++i) {
             char *key = vector_get(keys, i);
-            printf("MT: Analysing rule %s\n", key);
+            // printf("MT: Analysing rule %s\n", key);
             // check key in dict, check val == 0
             if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
                 D_print("MT: Pushing rule to queue\n");
@@ -280,6 +282,7 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
             } else {
                 // Adjust count depending on if dependencies are satisfied
                 vector *dependencies = graph_neighbors(d_graph, key); // destroy
+                rule_t *rule_data = graph_get_vertex_value(d_graph, key);
                 // D_print("Dependents vec:\n");
                 // D_print_string_vec(dependents);
                 // Start with No of dependencies, decrement to 0 if all satisfied
@@ -287,14 +290,13 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                 for (size_t j = 0; j < vector_size(dependencies); ++j) {
                     char *dependency = vector_get(dependencies, j);
                     rule_t *dependency_data = graph_get_vertex_value(d_graph, dependency);
-                    printf("%s state is: %d\n", dependency, dependency_data->state);
+                    // printf("%s state is: %d\n", dependency, dependency_data->state);
                     // check dependency satisfied, decrement
                     if (dependency_data->state == 1) {
                         count--;
                     } else if (dependency_data->state == -1) {
                         D_print("MT: Dependency has failed, propagating\n");
                         // TODO: if -1 what to do
-                        rule_t *rule_data = graph_get_vertex_value(d_graph, key);
                         rule_data->state = -1; // should propagate up
                         dictionary_remove(dict, key);
                         vector_erase(keys, i);
@@ -304,9 +306,12 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                 if (count == 0) {
                     D_print("MT: Count adjusted to 0\n");
                 }
-                key_value_pair kv = dictionary_at(dict, key);
-                *((int *)(*kv.value)) = count;
-                vector_destroy(dependencies);
+                // to catch fails since we delete the dict
+                if (rule_data->state != -1) {
+                    key_value_pair kv = dictionary_at(dict, key);
+                    *((int *)(*kv.value)) = count;
+                    vector_destroy(dependencies);
+                }
             }
         }
     }
