@@ -18,9 +18,12 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <pthread.h>
+#include <semaphore.h>
 
 // Global vars
 static queue *rule_q = NULL;
+static pthread_mutex_t q_mtx;
+static sem_t sem;
 
 // PRINT FUNCTIONS
 // Helper for debugging
@@ -210,7 +213,9 @@ int can_satisfy(rule_t *rule_data, graph *g) {
             // if not yet touched re q to get touched
             if (dependency_data->state == 0) {
                 // queue_push(rule_q, strdup(dependency));
+                pthread_mutex_lock(&q_mtx);
                 queue_push(rule_q, dependency);
+                pthread_mutex_unlock(&q_mtx);
             }
             vector_destroy(dependencies);
             return dependency_data->state;
@@ -234,49 +239,94 @@ int exec_rule(rule_t *rule_data) {
     return rule_data->state;
 }
 
-void fill_queue(dictionary *dict, vector *keys, graph *d_graph) {
+void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threads) {
     while(!dictionary_empty(dict)) {
         for (size_t i = 0; i < vector_size(keys); ++i) {
             char *key = vector_get(keys, i);
+            printf("MT: Analysing rule %s\n", key);
             // check key in dict, check val == 0
             if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
+                D_print("MT: Pushing rule to queue\n");
                 // push rule to q, update dict
                 // MUST FREE RULES FROM QUEUE ONCE PULLED, DYNAMICALLY ALLOCATED
                 char *rule = strdup(key);
+                pthread_mutex_lock(&q_mtx);
                 queue_push(rule_q, rule);
+                sem_post(&sem);
+                pthread_mutex_unlock(&q_mtx);
                 // printf("pushed %s to q\n", key);
-                // Note: if looking at goal will return vector of size 1 with ""
-                vector *dependents = graph_antineighbors(d_graph, key); // destroy
-                // D_print("Dependents vec:\n");
-                // D_print_string_vec(dependents);
-                for (size_t j = 0; j < vector_size(dependents); ++j) {
-                    char *dependent = vector_get(dependents, j);
-                    // check (to deal with avoiding "")
-                    if (dictionary_contains(dict, dependent)) {
-                        // printf("updating %s\n", dependent);
-                        // grab dependency count and decrement
-                        key_value_pair kv = dictionary_at(dict, dependent);
-                        *((int *)(*kv.value)) -= 1;
-                        // int count = *((int *)(*kv.value));
-                        // printf("Updated %s to %d\n", dependent, count);
-                    }
-                }
+
+                // DEPRECATED CODE: ONLY FOR 1 THREAD, assumes dependency satisfied, decrements count
+                // // Note: if looking at goal will return vector of size 1 with ""
+                // vector *dependents = graph_antineighbors(d_graph, key); // destroy
+                // // D_print("Dependents vec:\n");
+                // // D_print_string_vec(dependents);
+                // for (size_t j = 0; j < vector_size(dependents); ++j) {
+                //     char *dependent = vector_get(dependents, j);
+                //     // check (to deal with avoiding "")
+                //     if (dictionary_contains(dict, dependent)) {
+                //         // printf("updating %s\n", dependent);
+                //         // grab dependency count and decrement
+                //         key_value_pair kv = dictionary_at(dict, dependent);
+                //         *((int *)(*kv.value)) -= 1;
+                //         // int count = *((int *)(*kv.value));
+                //         // printf("Updated %s to %d\n", dependent, count);
+                //     }
+                // }
+
                 dictionary_remove(dict, key);
                 vector_erase(keys, i);
-                vector_destroy(dependents);
+                // vector_destroy(dependents);
+            } else {
+                // Adjust count depending on if dependencies are satisfied
+                vector *dependencies = graph_neighbors(d_graph, key); // destroy
+                // D_print("Dependents vec:\n");
+                // D_print_string_vec(dependents);
+                // Start with No of dependencies, decrement to 0 if all satisfied
+                int count = vector_size(dependencies);
+                for (size_t j = 0; j < vector_size(dependencies); ++j) {
+                    char *dependency = vector_get(dependencies, j);
+                    rule_t *dependency_data = graph_get_vertex_value(d_graph, dependency);
+                    printf("%s state is: %d\n", dependency, dependency_data->state);
+                    // check dependency satisfied, decrement
+                    if (dependency_data->state == 1) {
+                        count--;
+                    } else if (dependency_data->state == -1) {
+                        D_print("MT: Dependency has failed, propagating\n");
+                        // TODO: if -1 what to do
+                        rule_t *rule_data = graph_get_vertex_value(d_graph, key);
+                        rule_data->state = -1; // should propagate up
+                        dictionary_remove(dict, key);
+                        vector_erase(keys, i);
+                        break;
+                    }
+                }
+                if (count == 0) {
+                    D_print("MT: Count adjusted to 0\n");
+                }
+                key_value_pair kv = dictionary_at(dict, key);
+                *((int *)(*kv.value)) = count;
+                vector_destroy(dependencies);
             }
         }
     }
+    // Fill with num_threads sentinel values?
     // dynamically allocated so all rules are dynamically allocated
-    char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
-    strcpy(sentinel_value, "SENTINEL_VALUE");
-    queue_push(rule_q, sentinel_value);
+    D_print("MT: queueing Sentinel Values\n");
+    pthread_mutex_lock(&q_mtx);
+    for (size_t i = 0; i < num_threads; ++i) {
+        char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
+        strcpy(sentinel_value, "SENTINEL_VALUE");
+        queue_push(rule_q, sentinel_value);
+        sem_post(&sem);
+    }
+    pthread_mutex_unlock(&q_mtx);
 }
 
 void attempt_satisfy_rule(char *rule, graph *d_graph) {
     // execute rule, update state: -1 failed/not satisfied, 0 not touched, 1 satisfied
     // -1: mark current rule as -1 and do not re add to queue
-    // 0: re-add dependency to queue (should not happen)
+    // 0: re-add dependency to queue (should not happen) (V3 doesnt add if this is the case)
     // 1: continue to run rule
     // V2 check satisfaction
     rule_t *rule_data = graph_get_vertex_value(d_graph, rule);
@@ -299,7 +349,9 @@ void attempt_satisfy_rule(char *rule, graph *d_graph) {
         }
     } else if (s_status == 0) {
         D_print("A dependency was not touched, we should not be here\n");
+        pthread_mutex_lock(&q_mtx);
         queue_push(rule_q, rule);
+        pthread_mutex_unlock(&q_mtx);
     } else if (s_status == -1) {
         rule_data->state = 1;
     } else { D_print("s_status undefined value\n"); }
@@ -309,6 +361,25 @@ void attempt_satisfy_rule(char *rule, graph *d_graph) {
 // Will: Pull from queue, try to satisfy, shutdown once sentinel value encountered
 void *thread_rule_satisfy(void * args) {
     printf("Test thread running\n");
+    graph *d_graph = (graph *) args;
+    // TODO MOVE TO THREADS
+    // executing rules in q
+    sem_wait(&sem);
+    pthread_mutex_lock(&q_mtx);
+    char *rule = queue_pull(rule_q);
+    pthread_mutex_unlock(&q_mtx);
+    while(strcmp(rule, "SENTINEL_VALUE") != 0) {
+        // attempt to satisfy the rule
+        attempt_satisfy_rule(rule, d_graph);
+        // Mem manage and pull new queue
+        free(rule);
+        sem_wait(&sem);
+        pthread_mutex_lock(&q_mtx);
+        rule = queue_pull(rule_q);
+        pthread_mutex_unlock(&q_mtx);
+    }
+    free(rule);
+    D_print("Thread ended normally\n");
     return NULL;
 }
 
@@ -360,6 +431,13 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     D_print("Dict keys:\n");
     D_print_string_vec(keys);
 
+    // Init threading mtx and sem
+    if (pthread_mutex_init(&q_mtx, NULL)) {
+        perror("Failed to init mtx\n");
+    }
+    if (sem_init(&sem, 0, 0)) {
+        perror("Failed to init sem\n");
+    }
     // start threads
     pthread_t threads[num_threads];
     for (size_t i = 0; i < num_threads; ++i) {
@@ -372,21 +450,22 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     // FILL QUEUE AND SENTINEL VALUE
     // this will need to change: Instead of updating -- when queued a rule, must check dependency satisfaction
     // to determine count of each key, only 0 then push
-    fill_queue(dict, keys, d_graph);
+    fill_queue(dict, keys, d_graph, num_threads);
 
     // D_print_queue(rule_q); // prevenets mem errors while queue reaches end of code without emptying
 
-    // TODO MOVE TO THREADS
-    // executing rules in q
-    char *rule = queue_pull(rule_q);
-    while(strcmp(rule, "SENTINEL_VALUE") != 0) {
-        // attempt to satisfy the rule
-        attempt_satisfy_rule(rule, d_graph);
-        // Mem manage and pull new queue
-        free(rule);
-        rule = queue_pull(rule_q);
-    }
-    free(rule);
+    // // TODO MOVE TO THREADS
+    // // executing rules in q
+    // char *rule = queue_pull(rule_q);
+    // while(strcmp(rule, "SENTINEL_VALUE") != 0) {
+    //     // attempt to satisfy the rule
+    //     attempt_satisfy_rule(rule, d_graph);
+    //     // Mem manage and pull new queue
+    //     free(rule);
+    //     rule = queue_pull(rule_q);
+    // }
+    // free(rule);
+
     // Thread joining
     for (size_t i = 0; i < num_threads; ++i) {
         if (pthread_join(threads[i], NULL)) {
@@ -401,5 +480,7 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     dictionary_destroy(dict);
     vector_destroy(keys);
     queue_destroy(rule_q);
+    pthread_mutex_destroy(&q_mtx);
+    sem_destroy(&sem);
     return 0;
 }

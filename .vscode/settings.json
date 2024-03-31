@@ -10,5 +10,6 @@
         "cracker2.h": "c",
         "format.h": "c",
         "types.h": "c"
-    }
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }
