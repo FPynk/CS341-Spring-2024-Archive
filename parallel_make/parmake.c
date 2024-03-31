@@ -17,6 +17,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <pthread.h>
 
 // Global vars
 static queue *rule_q = NULL;
@@ -233,12 +234,89 @@ int exec_rule(rule_t *rule_data) {
     return rule_data->state;
 }
 
+void fill_queue(dictionary *dict, vector *keys, graph *d_graph) {
+    while(!dictionary_empty(dict)) {
+        for (size_t i = 0; i < vector_size(keys); ++i) {
+            char *key = vector_get(keys, i);
+            // check key in dict, check val == 0
+            if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
+                // push rule to q, update dict
+                // MUST FREE RULES FROM QUEUE ONCE PULLED, DYNAMICALLY ALLOCATED
+                char *rule = strdup(key);
+                queue_push(rule_q, rule);
+                // printf("pushed %s to q\n", key);
+                // Note: if looking at goal will return vector of size 1 with ""
+                vector *dependents = graph_antineighbors(d_graph, key); // destroy
+                // D_print("Dependents vec:\n");
+                // D_print_string_vec(dependents);
+                for (size_t j = 0; j < vector_size(dependents); ++j) {
+                    char *dependent = vector_get(dependents, j);
+                    // check (to deal with avoiding "")
+                    if (dictionary_contains(dict, dependent)) {
+                        // printf("updating %s\n", dependent);
+                        // grab dependency count and decrement
+                        key_value_pair kv = dictionary_at(dict, dependent);
+                        *((int *)(*kv.value)) -= 1;
+                        // int count = *((int *)(*kv.value));
+                        // printf("Updated %s to %d\n", dependent, count);
+                    }
+                }
+                dictionary_remove(dict, key);
+                vector_erase(keys, i);
+                vector_destroy(dependents);
+            }
+        }
+    }
+    // dynamically allocated so all rules are dynamically allocated
+    char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
+    strcpy(sentinel_value, "SENTINEL_VALUE");
+    queue_push(rule_q, sentinel_value);
+}
+
+void attempt_satisfy_rule(char *rule, graph *d_graph) {
+    // execute rule, update state: -1 failed/not satisfied, 0 not touched, 1 satisfied
+    // -1: mark current rule as -1 and do not re add to queue
+    // 0: re-add dependency to queue (should not happen)
+    // 1: continue to run rule
+    // V2 check satisfaction
+    rule_t *rule_data = graph_get_vertex_value(d_graph, rule);
+    int s_status = can_satisfy(rule_data, d_graph);
+    if (s_status == 1) {
+        // check if is file
+        if (is_file(rule)) {
+            //printf("rule is file\n");
+            // check if all deps are files and if any has newer mod time
+            if(file_dependency_check(rule_data, d_graph)) {
+                //printf("file exe\n");
+                exec_rule(rule_data);
+            } else {
+                // if all files and all older, mark as done
+                rule_data->state = 1;
+            }
+        } else {
+            // execute rule
+            exec_rule(rule_data); // sets state
+        }
+    } else if (s_status == 0) {
+        D_print("A dependency was not touched, we should not be here\n");
+        queue_push(rule_q, rule);
+    } else if (s_status == -1) {
+        rule_data->state = 1;
+    } else { D_print("s_status undefined value\n"); }
+}
+
+// Numthread worker threads to satisfy rules
+// Will: Pull from queue, try to satisfy, shutdown once sentinel value encountered
+void *thread_rule_satisfy(void * args) {
+    printf("Test thread running\n");
+    return NULL;
+}
+
 // memory todos
 // Notes: goal clean is deep copy of goals, push_back makes deep copies
 // Need to free?: 
 // Likely need to free: 
 // Must free: d_graph, goals, goals_clean
-
 int parmake(char *makefile, size_t num_threads, char **targets) {
     // good luck!
     // Me at start: Fuck
@@ -281,82 +359,40 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     vector *keys = dictionary_keys(dict); // destroy this
     D_print("Dict keys:\n");
     D_print_string_vec(keys);
-    while(!dictionary_empty(dict)) {
-        for (size_t i = 0; i < vector_size(keys); ++i) {
-            char *key = vector_get(keys, i);
-            // check key in dict, check val == 0
-            if (dictionary_contains(dict, key) && *((int *) dictionary_get(dict, key)) == 0) {
-                // push rule to q, update dict
-                // MUST FREE RULES FROM QUEUE ONCE PULLED, DYNAMICALLY ALLOCATED
-                char *rule = strdup(key);
-                queue_push(rule_q, rule);
-                // printf("pushed %s to q\n", key);
-                // Note: if looking at goal will return vector of size 1 with ""
-                vector *dependents = graph_antineighbors(d_graph, key); // destroy
-                // D_print("Dependents vec:\n");
-                // D_print_string_vec(dependents);
-                for (size_t j = 0; j < vector_size(dependents); ++j) {
-                    char *dependent = vector_get(dependents, j);
-                    // check (to deal with avoiding "")
-                    if (dictionary_contains(dict, dependent)) {
-                        // printf("updating %s\n", dependent);
-                        // grab dependency count and decrement
-                        key_value_pair kv = dictionary_at(dict, dependent);
-                        *((int *)(*kv.value)) -= 1;
-                        // int count = *((int *)(*kv.value));
-                        // printf("Updated %s to %d\n", dependent, count);
-                    }
-                }
-                dictionary_remove(dict, key);
-                vector_erase(keys, i);
-                vector_destroy(dependents);
-            }
+
+    // start threads
+    pthread_t threads[num_threads];
+    for (size_t i = 0; i < num_threads; ++i) {
+        if (pthread_create(&threads[i], NULL, thread_rule_satisfy, (void *) d_graph)) {
+            perror("failed to create thread\n");
+            exit(1);
         }
     }
-    // dynamically allocated so all rules are dynamically allocated
-    char *sentinel_value = malloc(sizeof(char) * strlen("SENTINEL_VALUE") + 1);
-    strcpy(sentinel_value, "SENTINEL_VALUE");
-    queue_push(rule_q, sentinel_value);
+
+    // FILL QUEUE AND SENTINEL VALUE
+    // this will need to change: Instead of updating -- when queued a rule, must check dependency satisfaction
+    // to determine count of each key, only 0 then push
+    fill_queue(dict, keys, d_graph);
+
     // D_print_queue(rule_q); // prevenets mem errors while queue reaches end of code without emptying
 
+    // TODO MOVE TO THREADS
     // executing rules in q
     char *rule = queue_pull(rule_q);
     while(strcmp(rule, "SENTINEL_VALUE") != 0) {
-        // execute rule, update state: -1 failed/not satisfied, 0 not touched, 1 satisfied
-        // -1: mark current rule as -1 and do not re add to queue
-        // 0: re-add dependency to queue (should not happen)
-        // 1: continue to run rule
-        // V2 check satisfaction
-        rule_t *rule_data = graph_get_vertex_value(d_graph, rule);
-        int s_status = can_satisfy(rule_data, d_graph);
-        if (s_status == 1) {
-            // check if is file
-            if (is_file(rule)) {
-                //printf("rule is file\n");
-                // check if all deps are files and if any has newer mod time
-                if(file_dependency_check(rule_data, d_graph)) {
-                    //printf("file exe\n");
-                    exec_rule(rule_data);
-                } else {
-                    // if all files and all older, mark as done
-                    rule_data->state = 1;
-                }
-            } else {
-                // execute rule
-                exec_rule(rule_data); // sets state
-            }
-        } else if (s_status == 0) {
-            D_print("A dependency was not touched, we should not be here\n");
-            queue_push(rule_q, rule);
-        } else if (s_status == -1) {
-            rule_data->state = 1;
-        } else { D_print("s_status undefined value\n"); }
-        
+        // attempt to satisfy the rule
+        attempt_satisfy_rule(rule, d_graph);
         // Mem manage and pull new queue
         free(rule);
         rule = queue_pull(rule_q);
     }
     free(rule);
+    // Thread joining
+    for (size_t i = 0; i < num_threads; ++i) {
+        if (pthread_join(threads[i], NULL)) {
+            perror("failed to join thread\n");
+        }
+    }
 
     // Mem management
     graph_destroy(d_graph);
