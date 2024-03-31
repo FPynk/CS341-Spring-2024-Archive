@@ -235,7 +235,7 @@ int exec_rule(rule_t *rule_data) {
         rule_data->state = -1;
     } else {
         D_print("Sanity check failed status\n");
-        printf("status: %d\n", status);
+        // printf("status: %d\n", status);
         rule_data->state = -1;
     }
     return rule_data->state;
@@ -365,7 +365,7 @@ void attempt_satisfy_rule(char *rule, graph *d_graph) {
 // Numthread worker threads to satisfy rules
 // Will: Pull from queue, try to satisfy, shutdown once sentinel value encountered
 void *thread_rule_satisfy(void * args) {
-    printf("Test thread running\n");
+    // printf("Test thread running\n");
     graph *d_graph = (graph *) args;
     // TODO MOVE TO THREADS
     // executing rules in q
