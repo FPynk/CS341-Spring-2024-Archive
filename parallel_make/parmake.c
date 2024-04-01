@@ -260,24 +260,6 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                 // sem_wait(&c_sem);
                 // printf("pushed %s to q\n", key);
 
-                // DEPRECATED CODE: ONLY FOR 1 THREAD, assumes dependency satisfied, decrements count
-                // // Note: if looking at goal will return vector of size 1 with ""
-                // vector *dependents = graph_antineighbors(d_graph, key); // destroy
-                // // D_print("Dependents vec:\n");
-                // // D_print_string_vec(dependents);
-                // for (size_t j = 0; j < vector_size(dependents); ++j) {
-                //     char *dependent = vector_get(dependents, j);
-                //     // check (to deal with avoiding "")
-                //     if (dictionary_contains(dict, dependent)) {
-                //         // printf("updating %s\n", dependent);
-                //         // grab dependency count and decrement
-                //         key_value_pair kv = dictionary_at(dict, dependent);
-                //         *((int *)(*kv.value)) -= 1;
-                //         // int count = *((int *)(*kv.value));
-                //         // printf("Updated %s to %d\n", dependent, count);
-                //     }
-                // }
-
                 dictionary_remove(dict, key);
                 vector_erase(keys, i);
                 // vector_destroy(dependents);
@@ -316,13 +298,14 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                     // sem_wait(&c_sem);
                     dictionary_remove(dict, key);
                     vector_erase(keys, i);
+                    sem_post(&c_sem);
                 }
                 // to catch fails since we delete the dict
                 if (rule_data->state != -1 && count != 0) {
                     key_value_pair kv = dictionary_at(dict, key);
                     *((int *)(*kv.value)) = count;
-                    vector_destroy(dependencies);
                 }
+                vector_destroy(dependencies);
             }
         }
         // printf("Fill loop\n");
