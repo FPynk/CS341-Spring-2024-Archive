@@ -24,6 +24,7 @@
 static queue *rule_q = NULL;
 static pthread_mutex_t q_mtx;
 static sem_t sem;
+static sem_t c_sem;
 
 // PRINT FUNCTIONS
 // Helper for debugging
@@ -256,6 +257,7 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                 queue_push(rule_q, rule);
                 sem_post(&sem);
                 pthread_mutex_unlock(&q_mtx);
+                // sem_wait(&c_sem);
                 // printf("pushed %s to q\n", key);
 
                 // DEPRECATED CODE: ONLY FOR 1 THREAD, assumes dependency satisfied, decrements count
@@ -300,20 +302,31 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                         rule_data->state = -1; // should propagate up
                         dictionary_remove(dict, key);
                         vector_erase(keys, i);
+                        // sem_post(&c_sem);
                         break;
                     }
                 }
                 if (count == 0) {
                     D_print("MT: Count adjusted to 0\n");
+                    char *rule = strdup(key);
+                    pthread_mutex_lock(&q_mtx);
+                    queue_push(rule_q, rule);
+                    sem_post(&sem);
+                    pthread_mutex_unlock(&q_mtx);
+                    // sem_wait(&c_sem);
+                    dictionary_remove(dict, key);
+                    vector_erase(keys, i);
                 }
                 // to catch fails since we delete the dict
-                if (rule_data->state != -1) {
+                if (rule_data->state != -1 && count != 0) {
                     key_value_pair kv = dictionary_at(dict, key);
                     *((int *)(*kv.value)) = count;
                     vector_destroy(dependencies);
                 }
             }
         }
+        // printf("Fill loop\n");
+        sem_wait(&c_sem);
     }
     // Fill with num_threads sentinel values?
     // dynamically allocated so all rules are dynamically allocated
@@ -378,10 +391,12 @@ void *thread_rule_satisfy(void * args) {
         attempt_satisfy_rule(rule, d_graph);
         // Mem manage and pull new queue
         free(rule);
+        sem_post(&c_sem);
         sem_wait(&sem);
         pthread_mutex_lock(&q_mtx);
         rule = queue_pull(rule_q);
         pthread_mutex_unlock(&q_mtx);
+        
     }
     free(rule);
     D_print("Thread ended normally\n");
@@ -443,6 +458,9 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     if (sem_init(&sem, 0, 0)) {
         perror("Failed to init sem\n");
     }
+    if (sem_init(&c_sem, 0, num_threads)) {
+        perror("Failed to init sem\n");
+    }
     // start threads
     pthread_t threads[num_threads];
     for (size_t i = 0; i < num_threads; ++i) {
@@ -455,8 +473,10 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     // FILL QUEUE AND SENTINEL VALUE
     // this will need to change: Instead of updating -- when queued a rule, must check dependency satisfaction
     // to determine count of each key, only 0 then push
+    clock_t start_fq = clock(); 
     fill_queue(dict, keys, d_graph, num_threads);
-
+    double time_taken_fq = ((double) (clock() - start_fq))/CLOCKS_PER_SEC; // in seconds
+    printf("==Fill queue took %f CPU seconds to execute==\n", time_taken_fq);
     // D_print_queue(rule_q); // prevenets mem errors while queue reaches end of code without emptying
 
     // // TODO MOVE TO THREADS
@@ -487,5 +507,6 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     queue_destroy(rule_q);
     pthread_mutex_destroy(&q_mtx);
     sem_destroy(&sem);
+    sem_destroy(&c_sem);
     return 0;
 }

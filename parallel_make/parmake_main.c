@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 static void parse_args(int argc, char **argv, char **makefile_ref,
                        size_t *num_threads_ref, char ***targets_ref) {
@@ -52,5 +53,8 @@ int main(int argc, char **argv) {
     char **targets = NULL;
     parse_args(argc, argv, &makefile, &num_threads, &targets);
     // calls the student code
+    clock_t start = clock(); 
     parmake(makefile, num_threads, targets);
+    double time_taken = ((double) (clock() - start))/CLOCKS_PER_SEC; // in seconds  
+    printf("==Parmake took %f CPU seconds to execute==\n", time_taken);
 }
