@@ -302,7 +302,7 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                         rule_data->state = -1; // should propagate up
                         dictionary_remove(dict, key);
                         vector_erase(keys, i);
-                        // sem_post(&c_sem);
+                        sem_post(&c_sem);
                         break;
                     }
                 }
@@ -326,6 +326,7 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
             }
         }
         // printf("Fill loop\n");
+        D_print("c_sem_wait\n");
         sem_wait(&c_sem);
     }
     // Fill with num_threads sentinel values?
@@ -391,12 +392,13 @@ void *thread_rule_satisfy(void * args) {
         attempt_satisfy_rule(rule, d_graph);
         // Mem manage and pull new queue
         free(rule);
+        D_print("c_sem_post\n");
         sem_post(&c_sem);
+        D_print("sem_wait\n");
         sem_wait(&sem);
         pthread_mutex_lock(&q_mtx);
         rule = queue_pull(rule_q);
         pthread_mutex_unlock(&q_mtx);
-        
     }
     free(rule);
     D_print("Thread ended normally\n");
@@ -473,10 +475,10 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     // FILL QUEUE AND SENTINEL VALUE
     // this will need to change: Instead of updating -- when queued a rule, must check dependency satisfaction
     // to determine count of each key, only 0 then push
-    clock_t start_fq = clock(); 
+    // clock_t start_fq = clock(); 
     fill_queue(dict, keys, d_graph, num_threads);
-    double time_taken_fq = ((double) (clock() - start_fq))/CLOCKS_PER_SEC; // in seconds
-    printf("==Fill queue took %f CPU seconds to execute==\n", time_taken_fq);
+    // double time_taken_fq = ((double) (clock() - start_fq))/CLOCKS_PER_SEC; // in seconds
+    // printf("==Fill queue took %f CPU seconds to execute==\n", time_taken_fq);
     // D_print_queue(rule_q); // prevenets mem errors while queue reaches end of code without emptying
 
     // // TODO MOVE TO THREADS
