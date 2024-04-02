@@ -23,6 +23,7 @@
 // Global vars
 static queue *rule_q = NULL;
 static pthread_mutex_t q_mtx;
+static pthread_mutex_t g_mtx;
 static sem_t sem;
 static sem_t c_sem;
 
@@ -210,6 +211,7 @@ int can_satisfy(rule_t *rule_data, graph *g) {
         char *dependency = vector_get(dependencies, j);
         rule_t *dependency_data = graph_get_vertex_value(g, dependency);
         // if dependent not satisfied return its status
+        pthread_mutex_lock(&g_mtx);
         if (dependency_data->state != 1) {
             // if not yet touched re q to get touched
             if (dependency_data->state == 0) {
@@ -219,8 +221,11 @@ int can_satisfy(rule_t *rule_data, graph *g) {
                 pthread_mutex_unlock(&q_mtx);
             }
             vector_destroy(dependencies);
-            return dependency_data->state;
+            int state = dependency_data->state;
+            pthread_mutex_unlock(&g_mtx);
+            return state;
         }
+        pthread_mutex_unlock(&g_mtx);
     }
     // all dependents satisfied
     vector_destroy(dependencies);
@@ -231,15 +236,24 @@ int exec_rule(rule_t *rule_data) {
     vector *cmds = rule_data->commands;
     int status = run_cmds(cmds);
     if (status == 0) {
+        pthread_mutex_lock(&g_mtx);
         rule_data->state = 1;
+        pthread_mutex_unlock(&g_mtx);
     } else if (status == -1) {
+        pthread_mutex_lock(&g_mtx);
         rule_data->state = -1;
+        pthread_mutex_unlock(&g_mtx);
     } else {
         D_print("Sanity check failed status\n");
         // printf("status: %d\n", status);
+        pthread_mutex_lock(&g_mtx);
         rule_data->state = -1;
+        pthread_mutex_unlock(&g_mtx);
     }
-    return rule_data->state;
+    pthread_mutex_lock(&g_mtx);
+    int state = rule_data->state;
+    pthread_mutex_unlock(&g_mtx);
+    return state;
 }
 
 void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threads) {
@@ -276,12 +290,17 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                     rule_t *dependency_data = graph_get_vertex_value(d_graph, dependency);
                     // printf("%s state is: %d\n", dependency, dependency_data->state);
                     // check dependency satisfied, decrement
-                    if (dependency_data->state == 1) {
+                    pthread_mutex_lock(&g_mtx);
+                    int state = dependency_data->state;
+                    pthread_mutex_unlock(&g_mtx);
+                    if (state == 1) {
                         count--;
-                    } else if (dependency_data->state == -1) {
+                    } else if (state == -1) {
                         D_print("MT: Dependency has failed, propagating\n");
                         // TODO: if -1 what to do
+                        pthread_mutex_lock(&g_mtx);
                         rule_data->state = -1; // should propagate up
+                        pthread_mutex_unlock(&g_mtx);
                         dictionary_remove(dict, key);
                         vector_erase(keys, i);
                         sem_post(&c_sem);
@@ -301,7 +320,10 @@ void fill_queue(dictionary *dict, vector *keys, graph *d_graph, size_t num_threa
                     sem_post(&c_sem);
                 }
                 // to catch fails since we delete the dict
-                if (rule_data->state != -1 && count != 0) {
+                pthread_mutex_lock(&g_mtx);
+                int state = rule_data->state;
+                pthread_mutex_unlock(&g_mtx);
+                if (state != -1 && count != 0) {
                     key_value_pair kv = dictionary_at(dict, key);
                     *((int *)(*kv.value)) = count;
                 }
@@ -343,7 +365,9 @@ void attempt_satisfy_rule(char *rule, graph *d_graph) {
                 exec_rule(rule_data);
             } else {
                 // if all files and all older, mark as done
+                pthread_mutex_lock(&g_mtx);
                 rule_data->state = 1;
+                pthread_mutex_unlock(&g_mtx);
             }
         } else {
             // execute rule
@@ -355,7 +379,9 @@ void attempt_satisfy_rule(char *rule, graph *d_graph) {
         queue_push(rule_q, rule);
         pthread_mutex_unlock(&q_mtx);
     } else if (s_status == -1) {
+        pthread_mutex_lock(&g_mtx);
         rule_data->state = 1;
+        pthread_mutex_unlock(&g_mtx);
     } else { D_print("s_status undefined value\n"); }
 }
 
@@ -445,6 +471,9 @@ int parmake(char *makefile, size_t num_threads, char **targets) {
     }
     if (sem_init(&c_sem, 0, num_threads)) {
         perror("Failed to init sem\n");
+    }
+    if (pthread_mutex_init(&g_mtx, NULL)) {
+        perror("Failed to init mtx\n");
     }
     // start threads
     pthread_t threads[num_threads];
