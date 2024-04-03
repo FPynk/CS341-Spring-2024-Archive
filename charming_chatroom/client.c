@@ -24,12 +24,31 @@ void *write_to_server(void *arg);
 void *read_from_server(void *arg);
 void close_program(int signal);
 
+// dynamically allocated addr_info
+static struct addrinfo *addr_structs;
+
+void free_addr_info() {
+    if (addr_structs) {
+            freeaddrinfo(addr_structs);
+            addr_structs = NULL;
+        }
+}
+
 /**
  * Shuts down connection with 'serverSocket'.
  * Called by close_program upon SIGINT.
  */
 void close_server_connection() {
     // Your code here
+    // Check addr info allocated, free if so
+    if (addr_structs) {
+        freeaddrinfo(addr_structs);
+        addr_structs = NULL;
+    }
+    // Shutdwon read part of socket to stop read ops
+    shutdown(serverSocket, SHUT_RD);
+    // close server socket
+    close(serverSocket);
 }
 
 /**
@@ -42,17 +61,49 @@ void close_server_connection() {
  * Returns integer of valid file descriptor, or exit(1) on failure.
  */
 int connect_to_server(const char *host, const char *port) {
-    /*QUESTION 1*/
-    /*QUESTION 2*/
-    /*QUESTION 3*/
+    // Q1-7
+    // Note: Need to use IPv4 TCP
+    struct addrinfo c_info;
+    // socket file descriptor for client
+    int sockfd;
+    // initialise c_info to zero and set desired properties
+    memset(&c_info, 0, sizeof(struct addrinfo));
+    c_info.ai_family = AF_INET; // IPv4
+    c_info.ai_socktype = SOCK_STREAM; // TCP
+    c_info.ai_protocol = 0;
 
-    /*QUESTION 4*/
-    /*QUESTION 5*/
+    // get list of addr structures for the server
+    int addr_res;
+    if ((addr_res = getaddrinfo(host, port, &c_info, &addr_structs)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addr_res));
+        free_addr_info();
+        exit(EXIT_FAILURE);
+    }
+    // Create client socket
+    if ((sockfd = socket(c_info.ai_family, c_info.ai_socktype, c_info.ai_protocol)) < 0) {
+        perror("Cannot create client socket");
+        free_addr_info();
+        exit(EXIT_FAILURE);
+    }
+    // Attempt connection using the obtained addr structs
+    struct addrinfo *temp;
+    for (temp = addr_structs; temp != NULL; temp = temp->ai_next) {
+        if (connect(sockfd, temp->ai_addr, temp->ai_addrlen) != -1) {
+            // Successful connection, stop trying
+            break;
+        }
+    }
 
-    /*QUESTION 6*/
+    // Check connection successful
+    if (!temp) {
+        perror("Cannot connect to server")
+        free_addr_info();
+        exit(EXIT_FAILURE);
+    }
 
-    /*QUESTION 7*/
-    return -1;
+    // Mem handle
+    free_addr_info();
+    return sockfd;
 }
 
 typedef struct _thread_cancel_args {

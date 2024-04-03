@@ -1,31 +1,52 @@
 1) What is a socket?
-
+A socket is an endpoint for sending and receiving data across a network. It's a fundamental
+concept in network programming, serving as a way to communicate between different processes over 
+a network. Typically uses IP for comms and is identified by IP address and port no.
 
 2) What is the difference between the domains AF_INET and AF_UNIX?
-
+AF_INET is addr fam for IPv4
+AF_UNIX is addr fam for inter-process comms on same machine. Sockets created with this is for
+processes on the same system using a file system path as an idenitifier
 
 3) What is the difference between SOCK_STREAM and SOCK_DGRAM?
-
+SOCK_STREAM provides reliable, connection oriented bytes stream service. Used with TCP.
+Data delivered in order, w/o dups
+SOCK_DGRAM is connectionless and unreliable. Sued with UDP, does not guarantee order of delivery
 
 4) Why is it important to clear all the values the addrinfo struct before using it in getaddrinfo?
-
+Clearing all vals in getaddrinfo like using memset is to ensure no random values in structure.
+Helps avoid unexpected results when getaddrinfo fill structure based on params.
+Ensures struct only contains relevant and defined values
 
 5) What are ai_family and ai_socktype?
-
+ai_family: field in addrinfo struct specifies addr fam for returned addr. Eg: AF_INET for IPv4,
+AF_INET6 for IPv6
+ai_socktype: Field specifies preferred sockec type, such as SOCK_STREAM for TCP socket or SOCK_DGRAM
+for UDP socket
 
 6) What does getaddrinfo do?
-
+getaddrinfo is a system function that provides a way to translate a human-readable host name
+like www.example.com into a strucutred list of network addresses. cna handle both IPv4 and IPv6
+addresses and is used to prepare to create a socket for connecting to or listening for connections
+from the host. Fills in an addrnfo struct
 
 7) What does connect do?
-
+used with a client socket to establish connection to server. takes socket descriptor, addr of host
++ port and size of addr.
 
 8) What is setsockopt?
-
+system call used to set options for socket. can enable broadcast, timeouts, configure socket to
+reuse addr
 
 9) What does bind do?
-
+assigns local protocol addr to socket. server: specify port number on which server listens for
+incoming connections. Client side UDP: bind specifies specific local port number
 
 10) What does listen do?
-
+used on server side to mark socket as passive socket; socket used to accept incoming connections
+requests using accept. Require specifying max queue length for incoming connections not yet accepted
 
 11) What does accept do?
+used by server  to accept incoming connection request from clien. blocks caller until connection
+present. Once incoming connection accepted, returns new socket descriptor used for comms with
+newly connected client.
