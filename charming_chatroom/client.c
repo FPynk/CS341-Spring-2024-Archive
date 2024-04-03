@@ -96,7 +96,7 @@ int connect_to_server(const char *host, const char *port) {
 
     // Check connection successful
     if (!temp) {
-        perror("Cannot connect to server")
+        perror("Cannot connect to server");
         free_addr_info();
         exit(EXIT_FAILURE);
     }

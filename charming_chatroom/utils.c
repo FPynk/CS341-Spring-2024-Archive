@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
 
 #include "utils.h"
 static const size_t MESSAGE_SIZE_DIGITS = 4;
@@ -35,7 +38,7 @@ ssize_t write_message_size(size_t size, int socket) {
     // convert size from host byte order to network byte order
     ssize_t fixed_size = htonl(size);
     // write size to sock
-    return write_all_to_socket(sock, (char *) &fixed_size, MESSAGE_SIZE_DIGITS);
+    return write_all_to_socket(socket, (char *) &fixed_size, MESSAGE_SIZE_DIGITS);
 }
 
 ssize_t read_all_from_socket(int socket, char *buffer, size_t count) {

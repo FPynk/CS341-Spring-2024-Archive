@@ -35,6 +35,21 @@ static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 void close_server() {
     endSession = 1;
     // add any additional flags here you want.
+    // Close server socket
+    if (shutdown(serverSocket, SHUT_RDWR) != 0) {
+        perror("Shutdown failed\n");
+    }
+    close(serverSocket);
+    // Iterate over client sockets, shutdown and close
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        if (clients[i] != -1) {
+            if (shutdown(clients[i], SHUT_RDWR) != 0) {
+                perror("Client shutdown failed\n");
+            }  
+            close(clients[i]);
+        }
+    }
+    clientsCount = 0;
 }
 
 /**
@@ -75,21 +90,77 @@ void cleanup() {
  *    - perror() for any other call
  */
 void run_server(char *port) {
-    /*QUESTION 1*/
-    /*QUESTION 2*/
-    /*QUESTION 3*/
+    // Q1-3 Q8 Q4-6 Q9-11
+    // Create a server socket with the right configurations
+    if  ((serverSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        fprintf(stderr, "Failed creating client scoket\n");
+        exit(EXIT_FAILURE);
+    }
+    // set socket options to SO_REUSEADDR and SO_REUSEPORT
+    int optval = 1;
+    if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEPORT, &optval, sizeof(optval)) < 0) {
+        perror("SO_REUSEPORT failed\n");
+        exit(EXIT_FAILURE);
+    }
+    if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
+        perror("SO_REUSEADDR failed\n");
+        exit(EXIT_FAILURE);
+    }
 
-    /*QUESTION 8*/
+    // prepare the server address and port for binding
+    struct addrinfo hints;
+    struct addrinfo *result;
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_INET; // IPV4
+    hints.ai_socktype = SOCK_STREAM; // TCP connection
+    hints.ai_flags = AI_PASSIVE; // use own IP
+    int addr_res = 0;
+    if ((addr_res = getaddrinfo(NULL, port, &hints, &result)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addr_res));
+        exit(EXIT_FAILURE);
+    }
 
-    /*QUESTION 4*/
-    /*QUESTION 5*/
-    /*QUESTION 6*/
+    // bind server socket to speicifed port and address
+    if (bind(serverSocket, result->ai_addr, result->ai_addrlen) != 0) {
+        perror("failed bind\n");
+        exit(EXIT_FAILURE);
+    }
 
-    /*QUESTION 9*/
+    // listen
+    if (listen(serverSocket, 16) < 0) {
+        perror("listen failed\n");
+        exit(EXIT_FAILURE);
+    }
 
-    /*QUESTION 10*/
-
-    /*QUESTION 11*/
+    // loop to accept and process new connections
+    struct sockaddr_storage clientaddr;
+    clientaddr.ss_family = AF_INET; // IPv4
+    socklen_t client_addr_size = sizeof(clientaddr);
+    // thread ids for each client
+    pthread_t threads[MAX_CLIENTS];
+    // Accept new connections
+    while (endSession == 0) {
+        // ensure max not reached
+        if (clientsCount < MAX_CLIENTS) {
+            for (int i  = 0; i < MAX_CLIENTS; ++i) {
+                // find empty slot
+                if (clients[i] == -1) {
+                    // Attempt accept connection
+                    clients[i] = accept(serverSocket, (struct sockaddr *) &clientaddr, &client_addr_size);
+                    // check if failed
+                    if (clients[i] == -1) {
+                        perror("SERVER ACCEPT FAILED\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    // success in accepting
+                    pthread_create(&threads[i], NULL, process_client, (void *) (intptr_t) i);
+                    clientsCount++;
+                    break; // exit loop to redo max client check
+                }
+            }
+        }
+    }
+    freeaddrinfo(result);
 }
 
 /**
