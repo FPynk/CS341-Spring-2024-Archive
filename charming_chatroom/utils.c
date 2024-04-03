@@ -61,7 +61,7 @@ ssize_t write_all_to_socket(int socket, const char *buffer, size_t count) {
         ssize_t cur_write = write(socket, buffer + b_write, count - b_write);
         if (cur_write == 0) { break; } // done
         else if (cur_write > 0) { b_write += cur_write; } // increment
-        else if (cur_write == -1 & errno == EINTR) { continue; } //interrupt, retry
+        else if (cur_write == -1 && errno == EINTR) { continue; } //interrupt, retry
         else { return -1; } // error
     }
     return b_write;
