@@ -114,8 +114,9 @@ void run_server(char *port) {
     hints.ai_family = AF_INET; // IPV4
     hints.ai_socktype = SOCK_STREAM; // TCP connection
     hints.ai_flags = AI_PASSIVE; // use own IP
-    int addr_res = 0;
+    int addr_res;
     if ((addr_res = getaddrinfo(NULL, port, &hints, &result)) != 0) {
+        freeaddrinfo(result);
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(addr_res));
         exit(EXIT_FAILURE);
     }
@@ -130,6 +131,10 @@ void run_server(char *port) {
     if (listen(serverSocket, 16) < 0) {
         perror("listen failed\n");
         exit(EXIT_FAILURE);
+    }
+
+    for (int i = 0; i < MAX_CLIENTS; ++i) {
+        clients[i] = -1;
     }
 
     // loop to accept and process new connections
