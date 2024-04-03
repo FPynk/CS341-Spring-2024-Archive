@@ -32,15 +32,34 @@ ssize_t get_message_size(int socket) {
 // You may assume size won't be larger than a 4 byte integer
 ssize_t write_message_size(size_t size, int socket) {
     // Your code here
-    return 9001;
+    // convert size from host byte order to network byte order
+    ssize_t fixed_size = htonl(size);
+    // write size to sock
+    return write_all_to_socket(sock, (char *) &fixed_size, MESSAGE_SIZE_DIGITS);
 }
 
 ssize_t read_all_from_socket(int socket, char *buffer, size_t count) {
     // Your Code Here
-    return 9001;
+    ssize_t b_read = 0;
+    while (b_read < (ssize_t) count) {
+        ssize_t cur_read = read(socket, buffer + b_read, count - b_read);
+        if (cur_read == 0) { break; } // Done reading
+        else if (cur_read > 0) { b_read += cur_read; } // increment bytes read
+        else if (cur_read == -1 && errno == EINTR) { continue; }// interruption, retry
+        else { return -1; } // error
+    }
+    return b_read;
 }
 
 ssize_t write_all_to_socket(int socket, const char *buffer, size_t count) {
     // Your Code Here
-    return 9001;
+    ssize_t b_write = 0;
+    while (b_write < (ssize_t) count) {
+        ssize_t cur_write = write(socket, buffer + b_write, count - b_write);
+        if (cur_write == 0) { break; } // done
+        else if (cur_write > 0) { b_write += cur_write; } // increment
+        else if (cur_write == -1 & errno == EINTR) { continue; } //interrupt, retry
+        else { return -1; } // error
+    }
+    return b_write;
 }
