@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 /**
  * Virtual paths:
@@ -39,19 +40,48 @@ int minixfs_virtual_path_count =
 int minixfs_chmod(file_system *fs, char *path, int new_permissions) {
     // Thar she blows!
     // get inode for path
-    
+    inode *node = get_inode(fs, path);
     // if inode exists:
-    // Get curretn mode and file type bits
-    // combine new perms with extracted bits to get new mode
-    // update c time
-    // return success
-
+    if (node) {
+        // Get current mode and file type bits
+        uint16_t curr_mode = node->mode;
+        // combine new perms with extracted bits to get new mode
+        // Shifts mode 9 bits to right to get file type, add 9 0 bits to perform | op
+        node->mode = new_permissions | ((curr_mode >> RWX_BITS_NUMBER) << RWX_BITS_NUMBER);
+        // update c time
+        clock_gettime(CLOCK_REALTIME, &node->ctim);
+        // return success
+        return 0;
+    }
+    
     // if DNE, set errno and return failure
-    return 0;
+    errno = ENOENT;
+    return -1;
 }
 
 int minixfs_chown(file_system *fs, char *path, uid_t owner, gid_t group) {
     // Land ahoy!
+    // get inode
+    inode *node = get_inode(fs, path);
+    // check node exits
+    if (node) {
+        // check valid owner, not -1
+        // if valid update
+        if (node->uid != (uid_t)-1) {
+            node->uid = owner;
+        }
+        // check valid group, not -1
+        // if valid update
+        if (node->gid != (uid_t)-1) {
+            node->gid = group;
+        }
+        // update ctim 
+        clock_gettime(CLOCK_REALTIME, &node->ctim);
+        // return success
+        return 0;
+    }
+    // node DNE, errno set and return failure
+    errno = ENOENT;
     return -1;
 }
 
