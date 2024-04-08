@@ -38,6 +38,15 @@ int minixfs_virtual_path_count =
 
 int minixfs_chmod(file_system *fs, char *path, int new_permissions) {
     // Thar she blows!
+    // get inode for path
+    
+    // if inode exists:
+    // Get curretn mode and file type bits
+    // combine new perms with extracted bits to get new mode
+    // update c time
+    // return success
+
+    // if DNE, set errno and return failure
     return 0;
 }
 
