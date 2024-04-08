@@ -67,12 +67,12 @@ int minixfs_chown(file_system *fs, char *path, uid_t owner, gid_t group) {
     if (node) {
         // check valid owner, not -1
         // if valid update
-        if (node->uid != (uid_t)-1) {
+        if (owner != (uid_t)-1) {
             node->uid = owner;
         }
         // check valid group, not -1
         // if valid update
-        if (node->gid != (uid_t)-1) {
+        if (group != (uid_t)-1) {
             node->gid = group;
         }
         // update ctim 
