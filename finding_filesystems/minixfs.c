@@ -87,6 +87,17 @@ int minixfs_chown(file_system *fs, char *path, uid_t owner, gid_t group) {
 
 inode *minixfs_create_inode_for_path(file_system *fs, const char *path) {
     // Land ahoy!
+    // Check if file already exists
+        // File exists, cannot create new one
+    // Find unused inode in the filesystem
+    // get reference to the new inode using number
+    // identify parent directory and new file's name
+    // initialise new inode with default settings
+    // prepare directory entry for the new file
+    // find where to put the new directory entry in the parent directory 
+    // write the directory entry into the parent directory
+    // update parent directory's size to account for the new entry
+    // return newly created inode
     return NULL;
 }
 
@@ -95,7 +106,7 @@ ssize_t minixfs_virtual_read(file_system *fs, const char *path, void *buf,
     if (!strcmp(path, "info")) {
         // TODO implement the "info" virtual file here
     }
-
+    
     errno = ENOENT;
     return -1;
 }

@@ -21,7 +21,7 @@ assignments:
   parallel_make:
     pt1: false
     pt2: false
-  password_cracker: false
+  password_cracker: true
   perilous_pointers: false
   deepfried_dd: false
   savvy_scheduler: false
