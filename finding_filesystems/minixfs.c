@@ -9,6 +9,8 @@
 #include <string.h>
 #include <time.h>
 
+#define D_BLK_SIZE sizeof(data_block)
+
 /**
  * Virtual paths:
  *  Add your new virtual endpoint to minixfs_virtual_path_names
@@ -36,6 +38,23 @@ static char *block_info_string(ssize_t num_used_blocks) {
 // Don't modify this line unless you know what you're doing
 int minixfs_virtual_path_count =
     sizeof(minixfs_virtual_path_names) / sizeof(minixfs_virtual_path_names[0]);
+
+// Helpers
+// returns pointer to the data block in the data section of the fs for a given inode
+// takes in the no of blocks offset (idx) from the data_block root
+// and the offset within the data_block itself
+void *get_datablock_ptr(file_system *fs, inode *node, uint64_t idx, uint64_t offset) {
+    data_block_number *block;
+    if (idx < NUM_DIRECT_BLOCKS) {
+        block = node->direct;
+    } else {
+        block = (data_block_number *) (fs->data_root + node->indirect);
+        idx -= NUM_DIRECT_BLOCKS;
+    }
+    // careful of triple offset calculation here
+    void *out = ((void *) (fs->data_root + block[idx] )) + offset;
+    return out;
+}
 
 int minixfs_chmod(file_system *fs, char *path, int new_permissions) {
     // Thar she blows!
@@ -88,17 +107,56 @@ int minixfs_chown(file_system *fs, char *path, uid_t owner, gid_t group) {
 inode *minixfs_create_inode_for_path(file_system *fs, const char *path) {
     // Land ahoy!
     // Check if file already exists
-        // File exists, cannot create new one
+    inode *node = get_inode(fs, path);
+    // File exists, cannot create new one
+    if (node) {
+        return NULL;
+    }
+    // get parent directory, filename
+    const char *filename;
+    inode *parent = parent_directory(fs, path, &filename);
+    // check valid filename
+    if (filename == NULL || valid_filename(filename) != 1) {
+        return NULL;
+    }
+    // check is dir
+    if (parent == NULL || !is_directory(parent)) {
+        return NULL;
+    }
     // Find unused inode in the filesystem
+    inode_number node_idx = first_unused_inode(fs);
+    if (node_idx == -1) {
+        return NULL;
+    }
     // get reference to the new inode using number
-    // identify parent directory and new file's name
+    inode *new_node = fs->inode_root + node_idx;
     // initialise new inode with default settings
+    init_inode(parent, new_node);
     // prepare directory entry for the new file
-    // find where to put the new directory entry in the parent directory 
+    minixfs_dirent new_dir;
+    new_dir.name = (char *) filename;
+    new_dir.inode_num = node_idx;
+    // find where to put the new directory entry in the parent directory
+    // need helper
+    uint64_t size = parent->size;
+    // no of blocks
+    uint64_t n_blocks = size / D_BLK_SIZE;
+    // offset within the block
+    uint64_t offset = size % D_BLK_SIZE;
+    if (n_blocks >= NUM_DIRECT_BLOCKS) {
+        return NULL; // idk what to do if its in indirect but lets just not care for now
+    }
+    if (offset == 0 && (add_data_block_to_inode(fs, parent) == -1)) {
+        return NULL;
+    }
+    void *block_ptr = get_datablock_ptr(fs, parent, n_blocks, offset);
     // write the directory entry into the parent directory
+    memset(block_ptr, 0, FILE_NAME_ENTRY);
+    make_string_from_dirent(block_ptr, new_dir);
     // update parent directory's size to account for the new entry
+    parent->size += FILE_NAME_ENTRY;
     // return newly created inode
-    return NULL;
+    return new_node;
 }
 
 ssize_t minixfs_virtual_read(file_system *fs, const char *path, void *buf,
