@@ -56,6 +56,11 @@ void *get_datablock_ptr(file_system *fs, inode *node, uint64_t idx, uint64_t off
     return out;
 }
 
+// returns min of int like values
+size_t min(size_t a, size_t b) {
+    return a > b ? b : a;
+}
+
 int minixfs_chmod(file_system *fs, char *path, int new_permissions) {
     // Thar she blows!
     // get inode for path
