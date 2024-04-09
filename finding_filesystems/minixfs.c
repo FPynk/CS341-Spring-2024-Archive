@@ -268,6 +268,42 @@ ssize_t minixfs_read(file_system *fs, const char *path, void *buf, size_t count,
     if (virtual_path)
         return minixfs_virtual_read(fs, virtual_path, buf, count, off);
     // 'ere be treasure!
+    // get inode
+    inode *node = get_inode(fs, path);
+    // create inode if doesnt exist
+    if (node == NULL) {
+        errno = ENOENT;
+        return -1;
+    }
+    // check read is within data size
+    if ((uint64_t) *off > node->size) {
+        return 0;
+    }
     
-    return -1;
+    // reading
+    // Calculate initial block idx, and offset inside of block
+    uint64_t blk_idx = *off / D_BLK_SIZE;
+    uint64_t blk_offset = *off % D_BLK_SIZE;
+    // points to last written pos in buffer
+    void *buf_ptr = (void *) buf;
+    // adjust count so we only read up to EOF
+    count = min(count, node->size - *off); 
+    while (count > 0) {
+        // loop fills whole blocks for n-1 loops and fills partial block n loop and 1st loop
+        // update each loop: size read per iter, offset within block and block index
+        // determine size to read in first iter, min of data or space left in block
+        uint64_t read_size = min(D_BLK_SIZE - blk_offset, count);
+        void *blk_ptr = get_datablock_ptr(fs, node, blk_idx, blk_offset);
+        // write fle -> buf, reading form file
+        memcpy(buf_ptr, blk_ptr, read_size);
+        // update off, count, ptr within buffer, blk_idx
+        *off += read_size;
+        count -= read_size;
+        buf_ptr += read_size;
+        blk_idx += 1;
+        blk_offset = 0; // non zero only for first loop
+    }
+    // update filesize atim
+    clock_gettime(CLOCK_REALTIME, &(node->atim));
+    return buf_ptr - buf; // return bytes read
 }
