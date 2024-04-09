@@ -63,43 +63,92 @@ int main(int argc, char *argv[]) {
     ssize_t r3 = minixfs_read(fs, path, b3, c3, &o3);
     printf("Read %ld bytes:%s\n", r3, b3);
 
-    printf("\nWrite test 1: Write and extend file\n");
-    struct stat statbuf1;
-    char b4[32];
-    char *w0 = "123456789ABCDEF";
-    off_t o4 = 0;
-    off_t ro4 = 0;
-    size_t c4 = 16;
-    ssize_t r4 = minixfs_read(fs, path, b4, 32, &ro4);
-    ro4 = 0;
-    minixfs_stat(fs, path, &statbuf1);
-    printf("Before write, Read %ld bytes:%s", r4, b4);
-    printf("filesize:%ld\n", statbuf1.st_size);
-    r4 = minixfs_write(fs, path, w0, c4, &o4);
-    minixfs_stat(fs, path, &statbuf1);
-    printf("wrote %ld bytes\n", r4);
-    r4 = minixfs_read(fs, path, b4, 32, &ro4);
-    printf("After write, Read %ld bytes:%s\n", r4, b4);
-    printf("filesize:%ld\n", statbuf1.st_size);
+    // printf("\nWrite test 1: Write and extend file\n");
+    // struct stat statbuf1;
+    // char b4[32];
+    // char *w0 = "123456789ABCDEF";
+    // off_t o4 = 0;
+    // off_t ro4 = 0;
+    // size_t c4 = 16;
+    // ssize_t r4 = minixfs_read(fs, path, b4, 32, &ro4);
+    // ro4 = 0;
+    // minixfs_stat(fs, path, &statbuf1);
+    // printf("Before write, Read %ld bytes:%s", r4, b4);
+    // printf("filesize:%ld\n", statbuf1.st_size);
+    // r4 = minixfs_write(fs, path, w0, c4, &o4);
+    // minixfs_stat(fs, path, &statbuf1);
+    // printf("wrote %ld bytes\n", r4);
+    // r4 = minixfs_read(fs, path, b4, 32, &ro4);
+    // printf("After write, Read %ld bytes:%s\n", r4, b4);
+    // printf("filesize:%ld\n", statbuf1.st_size);
 
-    printf("\nWrite test 2: Var Write tests\n");
-    struct stat statbuf2;
-    char b5[32];
-    char *w1 = "XXXX";
-    off_t o5 = 14;
-    off_t ro5 = 0;
-    size_t c5 = strlen(w1);
-    ssize_t r5 = minixfs_read(fs, path, b5, 32, &ro5);
-    ro5 = 0;
-    minixfs_stat(fs, path, &statbuf2);
-    printf("Before write, Read %ld bytes:%s\n", r5, b5);
-    printf("filesize:%ld\n", statbuf2.st_size);
-    r5 = minixfs_write(fs, path, w1, c5, &o5);
-    minixfs_stat(fs, path, &statbuf2);
-    printf("wrote %ld bytes\n", r5);
-    r5 = minixfs_read(fs, path, b5, 32, &ro5);
-    printf("After write, Read %ld bytes:%s\n", r5, b5);
-    printf("filesize:%ld\n", statbuf2.st_size);
+    // printf("\nWrite test 2: Var Write tests\n");
+    // struct stat statbuf2;
+    // char b5[32];
+    // char *w1 = "XXXX";
+    // off_t o5 = 14;
+    // off_t ro5 = 0;
+    // size_t c5 = strlen(w1);
+    // ssize_t r5 = minixfs_read(fs, path, b5, 32, &ro5);
+    // ro5 = 0;
+    // minixfs_stat(fs, path, &statbuf2);
+    // printf("Before write, Read %ld bytes:%s\n", r5, b5);
+    // printf("filesize:%ld\n", statbuf2.st_size);
+    // r5 = minixfs_write(fs, path, w1, c5, &o5);
+    // minixfs_stat(fs, path, &statbuf2);
+    // printf("wrote %ld bytes\n", r5);
+    // r5 = minixfs_read(fs, path, b5, 32, &ro5);
+    // printf("After write, Read %ld bytes:%s\n", r5, b5);
+    // printf("filesize:%ld\n", statbuf2.st_size);
+
+    // printf("=================== WRITE TEST2 ===============\n");
+    char buffer[64];
+    // char* str = "ABCDE!";
+    off_t off = 0;
+    // minixfs_read(fs, "/goodies/hello.txt", buffer, 20, &off);   
+    // printf("Before write:%s\n", buffer);
+    // off = 2;
+    // ssize_t res = minixfs_write(fs, "/goodies/hello.txt", str, 6, &off);
+    // assert(res == 6);
+    // assert(off == 8);
+
+    // off = 0;
+    // memset(buffer, 0, 14);
+    // minixfs_read(fs, "/goodies/hello.txt", buffer, 20, &off);   
+    // printf("After write:%s\n", buffer);
+    printf("=================== READ TEST INDIRECT ===============\n");
+
+    long max_direct = NUM_DIRECT_BLOCKS * sizeof(data_block);
+    long drop_length = max_direct + 5;
+    struct stat hair_stat;
+    minixfs_stat(fs, "goodies/hair.png", &hair_stat);
+
+    int fd_hair = open("goodies/hair.png", O_RDONLY);
+    if (fd_hair == -1) { perror("open"); }
+    lseek(fd_hair, drop_length, SEEK_SET);
+    char target[100];
+    read(fd_hair, target, 100);
+    puts(target);
+    close(fd_hair);
+
+    puts("starting to read on hair...");
+    char attempt[100];
+    off_t drop_offset = drop_length;
+    minixfs_read(fs, "/goodies/hair.png", attempt, 100, &drop_offset);   
+    assert(!strcmp(attempt, target));
+        printf("=================== WRITE TO NEW FILE ===============\n");
+
+    off = 0;
+    ssize_t asd = minixfs_write(fs, "/goodies/abcde.txt", "Iwanttosleepdudewtf", 10, &off);
+    if (asd == -1) { perror("write"); }
+    assert(asd == 10);
+    (void)asd;
+
+    memset(buffer, 0, 14);
+    off = 0;
+    ssize_t rez = minixfs_read(fs, "/goodies/abcde.txt", buffer, 14, &off);
+    if (rez == -1) { perror("read"); }
+    assert(!strcmp(buffer, "Iwanttosle"));
 
     close_fs(&fs);
 }
