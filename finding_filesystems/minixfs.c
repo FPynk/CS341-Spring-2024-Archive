@@ -254,7 +254,7 @@ ssize_t minixfs_write(file_system *fs, const char *path, const void *buf,
     // update filesize, mtim, atim
     // not just added since can overwrite data and size still be same
     // double check file update
-    if (*off > node->size) {
+    if ((uint64_t) *off > node->size) {
         node->size = *off;
     }
     clock_gettime(CLOCK_REALTIME, &(node->mtim));
