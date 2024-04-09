@@ -163,6 +163,34 @@ ssize_t minixfs_virtual_read(file_system *fs, const char *path, void *buf,
                              size_t count, off_t *off) {
     if (!strcmp(path, "info")) {
         // TODO implement the "info" virtual file here
+        // grab data map
+        char *data = GET_DATA_MAP(fs->meta);
+        uint64_t ttl_blks = fs->meta->dblock_count;
+        // Count used and unused data blocks // unused removed, not needed
+        size_t n_used = 0;
+        // size_t n_not_used = 0;
+        for (uint64_t i = 0; i < ttl_blks; ++i) {
+            if (data[i]) {
+                ++n_used;
+            }
+            // } else {
+            //     ++n_not_used;
+            // }
+        }
+        // Get string to print out, provided helper already prints it for us
+        char *info_out = block_info_string(n_used);
+        size_t info_len = strlen(info_out);
+        // Determine how many bytes of the str we need to read, check offset doesnt exceed info_len
+        size_t bytes_read = min(count, info_len - *off);
+        // Not exceeded, we have to read stuff
+        if (bytes_read > 0) {
+            memcpy(buf, info_out + *off, bytes_read);
+            *off += bytes_read;
+        } else {
+            // doesnt make sense to return negative bytes read
+            bytes_read = 0;
+        }
+        return bytes_read;
     }
     
     errno = ENOENT;
