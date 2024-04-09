@@ -205,7 +205,61 @@ ssize_t minixfs_virtual_read(file_system *fs, const char *path, void *buf,
 ssize_t minixfs_write(file_system *fs, const char *path, const void *buf,
                       size_t count, off_t *off) {
     // X marks the spot
-    return -1;
+    // get inode
+    inode *node = get_inode(fs, path);
+    // create inode if doesnt exist
+    if (node == NULL) {
+        node = minixfs_create_inode_for_path(fs, path);
+        if (node == NULL) {
+            errno = ENOSPC;
+            return -1;
+        }
+    }
+    // check we can write all the data to the file, off + count less than file max possible size
+    uint64_t max_file_size = (NUM_DIRECT_BLOCKS + NUM_INDIRECT_BLOCKS) * D_BLK_SIZE;
+    if (count + *off > max_file_size) {
+        errno = ENOSPC;
+        return -1;
+    }
+    // check inode has enough space, blocks allocated, allocate more if necessary
+    // deref off  to get bytes, + count bytes and round up with D_BLK_SIZE - 1
+    // division to get block number not bytes
+    int blocks_required = (*off + count + D_BLK_SIZE - 1) / D_BLK_SIZE;
+    // Check success
+    if (minixfs_min_blockcount(fs, path, blocks_required) == -1) {
+        errno = ENOSPC;
+        return -1;
+    }
+    // writing
+    // Calculate initial block idx, and offset inside of block
+    uint64_t blk_idx = *off / D_BLK_SIZE;
+    uint64_t blk_offset = *off % D_BLK_SIZE;
+    // points to last written pos in buffer
+    void *buf_ptr = (void *) buf;
+    while (count > 0) {
+        // loop fills whole blocks for n-1 loops and fills partial block n loop and 1st loop
+        // update each loop: size write per iter, offset within block and block index
+        // determine size to write in first iter, min of data or space left in block
+        uint64_t write_size = min(D_BLK_SIZE - blk_offset, count);
+        void *blk_ptr = get_datablock_ptr(fs, node, blk_idx, blk_offset);
+        // write buf -> file
+        memcpy(blk_ptr, buf_ptr, write_size);
+        // update off, count, ptr within buffer, blk_idx
+        *off += write_size;
+        count -= write_size;
+        buf_ptr += write_size;
+        blk_idx += 1;
+        blk_offset = 0; // non zero only for first loop
+    }
+    // update filesize, mtim, atim
+    // not just added since can overwrite data and size still be same
+    // double check file update
+    if (*off > node->size) {
+        node->size = *off;
+    }
+    clock_gettime(CLOCK_REALTIME, &(node->mtim));
+    clock_gettime(CLOCK_REALTIME, &(node->atim));
+    return buf_ptr - buf; // return bytes written
 }
 
 ssize_t minixfs_read(file_system *fs, const char *path, void *buf, size_t count,
@@ -214,5 +268,6 @@ ssize_t minixfs_read(file_system *fs, const char *path, void *buf, size_t count,
     if (virtual_path)
         return minixfs_virtual_read(fs, virtual_path, buf, count, off);
     // 'ere be treasure!
+    
     return -1;
 }
