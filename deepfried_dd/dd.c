@@ -33,7 +33,7 @@ int main(int argc, char **argv) {
     size_t block_size = DEFAULT_BLOCK_SIZE; // size of each block when copying
 
     // Parse cmd line
-    while((opt = getopt(argc, argv, "i:o:b:c:p:k")) != -1) {
+    while((opt = getopt(argc, argv, "i:o:b:c:p:k:")) != -1) {
         switch (opt)
         {
         // input file
@@ -70,9 +70,21 @@ int main(int argc, char **argv) {
     }
 
     // set file ptr positions using skip info
+    // Check fseek errors for input and output files
+    // if (in != stdin && fseek(in, skip_in * block_size, SEEK_SET) != 0) {
+    //     perror("Error seeking in input file");
+    //     fclose(in);
+    //     if (out != stdout) fclose(out);
+    //     exit(EXIT_FAILURE);
+    // }
+    // if (out != stdout && fseek(out, skip_out * block_size, SEEK_SET) != 0) { // Skip if out is stdout
+    //     perror("Error seeking in output file");
+    //     fclose(out);
+    //     if (in != stdin) fclose(in);
+    //     exit(EXIT_FAILURE);
+    // }
     fseek(in, skip_in * block_size, SEEK_SET);
     fseek(out, skip_out * block_size, SEEK_SET);
-
     // time op
     clock_t start = clock();
 
@@ -115,5 +127,9 @@ int main(int argc, char **argv) {
     long double time_spent = diff / CLOCKS_PER_SEC;
     // print
     print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
+
+    // Close files
+    if (in != stdin) fclose(in);
+    if (out != stdout) fclose(out);
     return 0;
 }
