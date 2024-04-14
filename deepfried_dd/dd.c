@@ -12,10 +12,10 @@
 
 #define DEFAULT_BLOCK_SIZE 512
 static int sig_pr_stats = 0;
-size_t glob_f_blocks = 0; // full blocks in 
-size_t glob_p_blocks = 0; // partial blocks in
-size_t glob_c_size = 0;   // copied size, bytes
-clock_t glob_start = 0;
+static size_t glob_f_blocks = 0; // full blocks in 
+static size_t glob_p_blocks = 0; // partial blocks in
+static size_t glob_c_size = 0;   // copied size, bytes
+static clock_t glob_start = 0;
 
 // Signal handler function for SIGUSR1
 // set sig_pr_stats to 1 and print stats
