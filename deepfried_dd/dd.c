@@ -103,6 +103,7 @@ int main(int argc, char **argv) {
             print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
             sig_pr_stats = 0;
         }
+        
         // check EOF or block copy limit
         if (feof(in) || (block_copy != 0 && p_blocks + f_blocks == block_copy)) {
             break;
@@ -128,7 +129,7 @@ int main(int argc, char **argv) {
         fwrite((void *) buf, read, 1, out);
         c_size += read;
         f_blocks += read == block_size ? 1 : 0;
-        p_blocks += read == block_size ? 0 : 1;
+        p_blocks += read < block_size ? 1 : 0;
     }
     // calc total time
     clock_t diff = clock() - start;
