@@ -9,13 +9,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "common.h"
 
 char **parse_args(int argc, char **argv);
 verb check_args(char **args);
+
+// Helpers
+void SIGINT_handler(int signal) {
+    if (signal == SIGINT) {
+        fprintf(stderr, "SIGINT Handler: WIP\n");
+    }
+}
+
 int main(int argc, char **argv) {
     // Good luck!
+    check_args(argv);
+    // char* array in form of {host, port, method, remote, local, NULL}
+    char **args = parse_args(argc, argv);
+    // signal handler
+    signal(SIGINT, SIGINT_handler);
 }
 
 /**
