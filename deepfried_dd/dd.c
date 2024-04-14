@@ -12,11 +12,19 @@
 
 #define DEFAULT_BLOCK_SIZE 512
 static int sig_pr_stats = 0;
+size_t glob_f_blocks = 0; // full blocks in 
+size_t glob_p_blocks = 0; // partial blocks in
+size_t glob_c_size = 0;   // copied size, bytes
+clock_t glob_start = 0;
 
 // Signal handler function for SIGUSR1
 // set sig_pr_stats to 1 and print stats
 void signal_handler(int s) {
-    sig_pr_stats = 1;
+    clock_t diff = clock() - glob_start;
+    long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
+    // print stats
+    print_status_report(glob_f_blocks, glob_p_blocks,
+                        glob_f_blocks, glob_p_blocks, glob_c_size, time_spent);
 }
 
 int main(int argc, char **argv) {
@@ -87,6 +95,7 @@ int main(int argc, char **argv) {
     fseek(out, skip_out * block_size, SEEK_SET);
     // time op
     clock_t start = clock();
+    glob_start = start;
 
     // vars to track copy progress
     size_t f_blocks = 0; // full blocks in 
@@ -95,14 +104,14 @@ int main(int argc, char **argv) {
 
     // Copy data
     while (1) {
-        // signal print stats
-        if (sig_pr_stats) {
-            clock_t diff = clock() - start;
-            long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
-            // print stats
-            print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
-            sig_pr_stats = 0;
-        }
+        // // signal print stats
+        // if (sig_pr_stats) {
+        //     clock_t diff = clock() - start;
+        //     long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
+        //     // print stats
+        //     print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
+        //     sig_pr_stats = 0;
+        // }
         
         // check EOF or block copy limit
         if (feof(in) || (block_copy != 0 && p_blocks + f_blocks == block_copy)) {
@@ -130,6 +139,9 @@ int main(int argc, char **argv) {
         c_size += read;
         f_blocks += read == block_size ? 1 : 0;
         p_blocks += read < block_size ? 1 : 0;
+        glob_f_blocks = c_size; // full blocks in 
+        glob_p_blocks = f_blocks; // partial blocks in
+        glob_c_size = p_blocks;   // copied size, bytes
     }
     // calc total time
     clock_t diff = clock() - start;
