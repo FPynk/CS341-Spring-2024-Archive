@@ -17,19 +17,72 @@ char **parse_args(int argc, char **argv);
 verb check_args(char **args);
 
 // Helpers
+// Fn executes when SIGINT
 void SIGINT_handler(int signal) {
     if (signal == SIGINT) {
         fprintf(stderr, "SIGINT Handler: WIP\n");
     }
 }
 
+// Request functions for various methods
+// Handles GET method, return status 0 success -1 error
+int GET_request(remote, local) {
+
+}
+
+// Handles PUT method, return status 0 success -1 error
+int PUT_request(remote, local) {
+
+}
+
+// Handles LIST method, return status 0 success -1 error
+int LIST_request() {
+
+}
+
+// Handles DELETE method, return status 0 success -1 error
+int DELETE_request(remote) {
+
+}
+
 int main(int argc, char **argv) {
     // Good luck!
     check_args(argv);
     // char* array in form of {host, port, method, remote, local, NULL}
-    char **args = parse_args(argc, argv);
+    char **args = parse_args(argc, argv); // delete
     // signal handler
     signal(SIGINT, SIGINT_handler);
+
+    // Connect to server: args[0], args[1]
+    // WIP
+
+    // Check method
+    // Store in local vars
+    char *method = args[2];
+    char *remote = args[3];
+    char *local = args[4];
+    int status = 0;
+
+    // Dispatch
+    if (strcmp(method, "GET") == 0) {
+        status = GET_request(remote, local);
+    } else if (strcmp(method, "PUT") == 0) {
+        status = PUT_request(remote, local);
+    } else if (strcmp(method, "LIST") == 0) {
+        status = LIST_request();
+    } else if (strcmp(method, "DELETE") == 0) {
+        status = DELETE_request(remote);
+    } else {
+        // method not recognised
+        print_client_help();
+        status = 1;
+    }
+
+    // Memory management
+    free(args);
+    // Close connection
+
+    return 0;
 }
 
 /**
