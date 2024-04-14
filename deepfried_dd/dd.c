@@ -16,7 +16,9 @@ static int sig_pr_stats = 0;
 // Signal handler function for SIGUSR1
 // set sig_pr_stats to 1 and print stats
 void signal_handler(int s) {
-    sig_pr_stats = s == SIGUSR1 ? 1 : sig_pr_stats;
+    if (s == SIGUSR1) {
+        sig_pr_stats = 1;
+    }
 }
 
 int main(int argc, char **argv) {
@@ -103,7 +105,7 @@ int main(int argc, char **argv) {
         // signal print stats
         if (sig_pr_stats) {
             clock_t diff = clock() - start;
-            long double time_spent = diff / CLOCKS_PER_SEC;
+            long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
             // print stats
             print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
             sig_pr_stats = 0;
@@ -124,7 +126,7 @@ int main(int argc, char **argv) {
     }
     // calc total time
     clock_t diff = clock() - start;
-    long double time_spent = diff / CLOCKS_PER_SEC;
+    long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
     // print
     print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
 
