@@ -16,9 +16,7 @@ static int sig_pr_stats = 0;
 // Signal handler function for SIGUSR1
 // set sig_pr_stats to 1 and print stats
 void signal_handler(int s) {
-    if (s == SIGUSR1) {
-        sig_pr_stats = 1;
-    }
+    sig_pr_stats = 1;
 }
 
 int main(int argc, char **argv) {
@@ -97,6 +95,14 @@ int main(int argc, char **argv) {
 
     // Copy data
     while (1) {
+        // signal print stats
+        if (sig_pr_stats) {
+            clock_t diff = clock() - start;
+            long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
+            // print stats
+            print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
+            sig_pr_stats = 0;
+        }
         // check EOF or block copy limit
         if (feof(in) || (block_copy != 0 && p_blocks + f_blocks == block_copy)) {
             break;
