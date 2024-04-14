@@ -146,7 +146,7 @@ inode *minixfs_create_inode_for_path(file_system *fs, const char *path) {
     uint64_t size = parent->size;
     // no of blocks
     uint64_t n_blocks = size / D_BLK_SIZE;
-    // offset within the block
+    // offset within the blockw
     uint64_t offset = size % D_BLK_SIZE;
     if (n_blocks >= NUM_DIRECT_BLOCKS) {
         return NULL; // idk what to do if its in indirect but lets just not care for now
