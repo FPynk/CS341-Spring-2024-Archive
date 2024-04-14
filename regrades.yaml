@@ -23,7 +23,7 @@ assignments:
     pt2: false
   password_cracker: true
   perilous_pointers: false
-  deepfried_dd: false
+  deepfried_dd: true
   savvy_scheduler: false
   shell:
     pt1: false
