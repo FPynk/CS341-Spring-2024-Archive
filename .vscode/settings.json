@@ -10,7 +10,8 @@
         "cracker2.h": "c",
         "format.h": "c",
         "types.h": "c",
-        "minixfs.h": "c"
+        "minixfs.h": "c",
+        "errno.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
