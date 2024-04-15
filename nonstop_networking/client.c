@@ -505,7 +505,7 @@ int main(int argc, char **argv) {
         print_client_help();
         status = 1;
     }
-    fprintf(stderr, "status: %d\n", status);
+    // fprintf(stderr, "status: %d\n", status);
     // Memory management
     free(args);
     // Close connection
