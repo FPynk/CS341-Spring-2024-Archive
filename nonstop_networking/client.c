@@ -46,7 +46,7 @@ static volatile int serverSocket;
 static const size_t MESSAGE_SIZE_DIGITS = 8;
 #define HEADER_SIZE 1024
 #define KILOBYTE 1024
-#define BLOCK_SIZE KILOBYTE
+#define BLOCK_SIZE 4 * KILOBYTE
 // Helpers
 // free addr_structs
 void free_addr_info() {
@@ -359,12 +359,120 @@ int PUT_request(const char *remote, const char *local) {
 
 // Handles LIST method, return status 0 success -1 error
 int LIST_request() {
-    return 0;
+    // format request
+    char request[HEADER_SIZE];
+    snprintf(request, sizeof(request), "LIST\n");
+    // send to server
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("LIST_request: Failed to write request to socket\n");
+        return -1;
+    }
+
+    // close write so server processes
+    shutdown(serverSocket, SHUT_WR);
+
+    // get reply status line, note size of buffer reply is +1 of the return of read due to '\0'
+    char response[6];
+    if(read_line(response, sizeof(response)) < 0) {
+        print_invalid_response();
+        perror("LIST_request: Failed to read reply_status_line from socket\n");
+        return -1;
+    }
+    // fprintf(stderr, "response: %s\n", response);
+    // Process server reply
+    int status = process_server_response(response);
+    if (status != 0) {
+        perror("LIST_request: process_server_reply ERROR\n");
+        return -1;
+    }
+    // open file
+    FILE *file = stdout;
+    if (file == NULL) {
+        perror("LIST_request: failed to open file\n");
+        return -1;
+    }
+
+    ssize_t msg_size = get_message_size(serverSocket, MESSAGE_SIZE_DIGITS);
+    // fprintf(stderr, "msg_size: %ld\n", msg_size);
+    if (msg_size < 0) {
+        perror("LIST_request: failed to get msg size\n");
+        return -1;
+    }
+    // Stuff i need to read/write the file with
+    char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = 0;
+    ssize_t b_left_to_write = msg_size;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            perror("LIST_request: failed to read msg\n");
+            status = -1;
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_to_WR) { // cannot be b_read
+            perror("LIST_request: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+    }
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, 1);
+    if (b_read > 0) {
+        print_received_too_much_data();
+        perror("LIST_request: too much data\n");
+        status = -1;
+    }
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        print_too_little_data();
+        perror("LIST_request: too little data\n");
+        status = -1;
+    }
+    // close file
+    fclose(file);
+    // return status
+    return status;
 }
 
 // Handles DELETE method, return status 0 success -1 error
 int DELETE_request(const char *remote) {
-    return 0;
+    // prep delete request
+    char request[HEADER_SIZE];
+    snprintf(request, sizeof(request), "DELETE %s\n", remote);
+    // send delete request
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("DELETE_request: Failed to write request to socket\n");
+        return -1;
+    }
+    // shutdown WR
+    shutdown(serverSocket, SHUT_WR);
+    // check server response
+    char response[6];
+    if(read_line(response, sizeof(response)) < 0) {
+        print_invalid_response();
+        perror("DELETE_request: Failed to read reply_status_line from socket\n");
+        return -1;
+    }
+    int status = process_server_response(response);
+    // print success
+    if (status == 0) {
+        print_success();
+    }
+    // return status
+    return status;
 }
 
 int main(int argc, char **argv) {
