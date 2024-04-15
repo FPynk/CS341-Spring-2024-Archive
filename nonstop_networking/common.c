@@ -11,6 +11,9 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
+// Reads count number of bytes from socket into buffer
+// Returns 0 if no data read
+// Returns -1 if error
 ssize_t read_all_from_socket(int socket, char *buffer, size_t count) {
     // Your Code Here
     ssize_t b_read = 0;
@@ -24,6 +27,9 @@ ssize_t read_all_from_socket(int socket, char *buffer, size_t count) {
     return b_read;
 }
 
+// Writes count number of bytes from socket into buffer
+// Returns 0 if no data read
+// Returns -1 if error
 ssize_t write_all_to_socket(int socket, const char *buffer, size_t count) {
     // Your Code Here
     ssize_t b_write = 0;
@@ -35,4 +41,22 @@ ssize_t write_all_to_socket(int socket, const char *buffer, size_t count) {
         else { return -1; } // error
     }
     return b_write;
+}
+
+// returns size of message as ssize_t, converts from network to host byte order
+// Returns 0 if no data read
+// Returns -1 if error from read_all_from_socket
+ssize_t get_message_size(int socket, size_t MESSAGE_SIZE_DIGITS) {
+    int32_t size;
+    ssize_t read_bytes =
+        read_all_from_socket(socket, (char *)&size, MESSAGE_SIZE_DIGITS);
+    if (read_bytes == 0 || read_bytes == -1)
+        return read_bytes;
+    return (ssize_t) size;
+    // return (ssize_t)ntohl(size); // do not do this
+}
+
+// Returns min of the 2 vars
+size_t min(size_t a, size_t b) {
+    return a < b ? a : b;
 }

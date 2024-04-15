@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/stat.h>
 
 // server imports
 #include <sys/types.h>
@@ -19,16 +20,33 @@
 #include <unistd.h>
 #include <netdb.h>
 
+// error import
+#include <errno.h>
+
 #include "common.h"
 
 char **parse_args(int argc, char **argv);
 verb check_args(char **args);
 
+// Notes
+// Cient request
+// VERB [filename]\n // filename max 255 bytes // Max for this header is 1024 bytes
+// [File size][Binary Data]
+// Server Reponse
+// RESPONSE\n // MAx is 1024, only expect max 6 bytes though ERROR'\n'
+// [Error Message]\n // Max is 1024
+// [File size][Binary Data] // [File size] is 8 bytes
+
+// Filename limited to 255 bytes
 // dynamically allocated addr_info
 static struct addrinfo *addr_structs;
 // File descriptor for server socket
 static volatile int serverSocket;
-
+// Size of message containing size of file
+static const size_t MESSAGE_SIZE_DIGITS = 8;
+#define HEADER_SIZE 1024
+#define KILOBYTE 1024
+#define BLOCK_SIZE KILOBYTE
 // Helpers
 // free addr_structs
 void free_addr_info() {
@@ -36,7 +54,7 @@ void free_addr_info() {
         freeaddrinfo(addr_structs);
         addr_structs = NULL;
     }
-}
+} 
 
 /**
  * Shuts down connection with 'serverSocket'.
@@ -111,11 +129,150 @@ int connect_to_server(const char *host, const char *port) {
     return sockfd;
 }
 
+// Reads single line from server socket
+// input: buffer to readline into, size of buffer
+// returns -1 error or failure; x no of bytes read does not incldue '\n'
+// Note: Same as read_all_from_socket but 1 char at a time
+int read_line(char *buf, size_t buf_size) {
+    ssize_t b_read = 0;
+    while (b_read < (ssize_t) buf_size - 1) { // leave space for null terminate
+        ssize_t cur_read = read(serverSocket, buf + b_read, 1);
+        if (cur_read == 0) { break; } // Done reading
+        else if (cur_read > 0) { 
+            char cur_char = buf[b_read];
+            // Check if current char is newline
+            if (cur_char == '\n') {
+                buf[b_read] = '\0';
+                return b_read;
+            }
+            b_read += cur_read; // increment bytes read
+        } else if (cur_read == -1 && errno == EINTR) { continue; }// interruption, retry
+        else { return -1; } // error
+    }
+    buf[b_read] = '\0'; // null terminte, will replace
+    return b_read;
+}
+
+// Process and print appropriate error message based on the server reply
+// uses format.h
+// input: line corresponding to OK or ERROR
+// output: 0 if OK; -1 error; 1 if anything else, invalid
+int process_server_response(const char *response) {
+    int status = 0;
+    if (strcmp(response, "OK") == 0) {
+        status = 0;
+    } else if (strcmp(response, "ERROR") == 0) {
+        status = -1;
+        // Get error message
+        char error_message[HEADER_SIZE];
+        int b_read = read_line(error_message, sizeof(error_message));
+        if (b_read < 0) {
+            print_invalid_response();
+            perror("PSR: Error then Invalid response\n");
+            status = 1;
+        } else {
+            print_error_message(error_message);
+        }
+    } else {
+        status = 1;
+        print_invalid_response();
+        perror("PSR: Invalid response\n");
+    }
+    return status;
+}
 
 // Request functions for various methods
 // Handles GET method, return status 0 success -1 error
 int GET_request(const char *remote, const char *local) {
-    return 0;
+    // format request
+    char request[HEADER_SIZE];
+    snprintf(request, sizeof(request), "GET %s\n", remote);
+    // send to server
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("GET_request: Failed to write request to socket\n");
+        return -1;
+    }
+
+    // close write so server processes
+    shutdown(serverSocket, SHUT_WR);
+
+    // get reply status line, note size of buffer reply is +1 of the return of read due to '\0'
+    char response[6];
+    if(read_line(response, sizeof(response)) < 0) {
+        print_invalid_response();
+        perror("GET_request: Failed to read reply_status_line from socket\n");
+        return -1;
+    }
+    fprintf(stderr, "response: %s\n", response);
+    // Process server reply
+    int status = process_server_response(response);
+    if (status != 0) {
+        perror("GET_request: process_server_reply ERROR\n");
+        return -1;
+    }
+    // open file
+    FILE *file = fopen(local, "w+");
+    if (file == NULL) {
+        perror("GET_request: failed to open file\n");
+        return -1;
+    }
+    // set perms
+    if (chmod(local, 0777) != 0) {
+        perror("GET_request: failed to set file perms\n");
+        return -1;
+    }
+
+    ssize_t msg_size = get_message_size(serverSocket, MESSAGE_SIZE_DIGITS);
+    fprintf(stderr, "msg_size: %ld\n", msg_size);
+    if (msg_size < 0) {
+        perror("GET_request: failed to get msg size\n");
+        return -1;
+    }
+    // Stuff i need to read/write the file with
+    char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = 0;
+    ssize_t b_left_to_write = msg_size;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            perror("GET_request: failed to read msg\n");
+            status = -1;
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_to_WR) { // cannot be b_read
+            perror("GET_request: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+    }
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, 1);
+    if (b_read > 0) {
+        print_received_too_much_data();
+        perror("GET_request: too much data\n");
+        status = -1;
+    }
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        print_too_little_data();
+        perror("GET_request: too little data\n");
+        status = -1;
+    }
+    // close file
+    fclose(file);
+    // return status
+    return status;
 }
 
 // Handles PUT method, return status 0 success -1 error
