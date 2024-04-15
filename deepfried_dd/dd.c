@@ -11,17 +11,18 @@
 #include <string.h>
 
 #define DEFAULT_BLOCK_SIZE 512
-static int sig_pr_stats = 0;
+static struct timespec start_time, end_time; 
+// static int sig_pr_stats = 0;
 static size_t glob_f_blocks = 0; // full blocks in 
 static size_t glob_p_blocks = 0; // partial blocks in
 static size_t glob_c_size = 0;   // copied size, bytes
-static clock_t glob_start = 0;
+// static clock_t glob_start = 0;
 
 // Signal handler function for SIGUSR1
 // set sig_pr_stats to 1 and print stats
 void signal_handler(int s) {
-    clock_t diff = clock() - glob_start;
-    long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    double time_spent = ((end_time.tv_sec - start_time.tv_sec) * 1000000000 + (end_time.tv_nsec - start_time.tv_nsec)) / 1000000000.0;
     // print stats
     print_status_report(glob_f_blocks, glob_p_blocks,
                         glob_f_blocks, glob_p_blocks, glob_c_size, time_spent);
@@ -94,8 +95,9 @@ int main(int argc, char **argv) {
     fseek(in, skip_in * block_size, SEEK_SET);
     fseek(out, skip_out * block_size, SEEK_SET);
     // time op
-    clock_t start = clock();
-    glob_start = start;
+    // clock_t start = clock();
+    // glob_start = start;
+    clock_gettime(CLOCK_MONOTONIC, &start_time);
 
     // vars to track copy progress
     size_t f_blocks = 0; // full blocks in 
@@ -119,13 +121,13 @@ int main(int argc, char **argv) {
         }
 
         // signal print stats
-        if (sig_pr_stats) {
-            clock_t diff = clock() - start;
-            long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
-            // print stats
-            print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
-            sig_pr_stats = 0;
-        }
+        // if (sig_pr_stats) {
+        //     clock_gettime(CLOCK_MONOTONIC, &end_time);
+        //     double time_spent = ((end_time.tv_sec - start_time.tv_sec) * 1000000000 + (end_time.tv_nsec - start_time.tv_nsec)) / 1000000000.0;
+        //     // print stats
+        //     print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
+        //     sig_pr_stats = 0;
+        // }
 
         // Buffer to read
         char buf[block_size];
@@ -144,8 +146,8 @@ int main(int argc, char **argv) {
         glob_c_size = p_blocks;   // copied size, bytes
     }
     // calc total time
-    clock_t diff = clock() - start;
-    long double time_spent = ((diff * 1000)/ CLOCKS_PER_SEC)/ 1000;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    double time_spent = ((end_time.tv_sec - start_time.tv_sec) * 1000000000 + (end_time.tv_nsec - start_time.tv_nsec)) / 1000000000.0;
     // print
     print_status_report(f_blocks, p_blocks, f_blocks, p_blocks, c_size, time_spent);
 
