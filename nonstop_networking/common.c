@@ -43,7 +43,7 @@ ssize_t write_all_to_socket(int socket, const char *buffer, size_t count) {
     return b_write;
 }
 
-// returns size of message as ssize_t, converts from network to host byte order
+// returns size of message as ssize_t, converts from network to host byte order (reprecated)
 // Returns 0 if no data read
 // Returns -1 if error from read_all_from_socket
 ssize_t get_message_size(int socket, size_t MESSAGE_SIZE_DIGITS) {
@@ -54,6 +54,13 @@ ssize_t get_message_size(int socket, size_t MESSAGE_SIZE_DIGITS) {
         return read_bytes;
     return (ssize_t) size;
     // return (ssize_t)ntohl(size); // do not do this
+}
+
+// returns bytes written from write all bytes
+ssize_t send_message_size(int socket, size_t MESSAGE_SIZE_DIGITS, size_t size) {
+    ssize_t write_bytes =
+        write_all_to_socket(socket, (char *)&size, MESSAGE_SIZE_DIGITS);
+    return write_bytes;
 }
 
 // Returns min of the 2 vars

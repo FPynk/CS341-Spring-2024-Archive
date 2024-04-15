@@ -205,7 +205,7 @@ int GET_request(const char *remote, const char *local) {
         perror("GET_request: Failed to read reply_status_line from socket\n");
         return -1;
     }
-    fprintf(stderr, "response: %s\n", response);
+    // fprintf(stderr, "response: %s\n", response);
     // Process server reply
     int status = process_server_response(response);
     if (status != 0) {
@@ -225,7 +225,7 @@ int GET_request(const char *remote, const char *local) {
     }
 
     ssize_t msg_size = get_message_size(serverSocket, MESSAGE_SIZE_DIGITS);
-    fprintf(stderr, "msg_size: %ld\n", msg_size);
+    // fprintf(stderr, "msg_size: %ld\n", msg_size);
     if (msg_size < 0) {
         perror("GET_request: failed to get msg size\n");
         return -1;
@@ -239,7 +239,7 @@ int GET_request(const char *remote, const char *local) {
         b_left_to_write = msg_size - file_b_wrote;
         // read/ write in blocks
         ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
-        fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
         // read from socket
         ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, b_to_WR);
         if (b_read < 0) {
@@ -275,9 +275,86 @@ int GET_request(const char *remote, const char *local) {
     return status;
 }
 
-// Handles PUT method, return status 0 success -1 error
+// Handles PUT method, return status 0 success -1 or 1 error
 int PUT_request(const char *remote, const char *local) {
-    return 0;
+    // get file stats, size
+    struct stat file_stat;
+    if (stat(local, &file_stat) != 0) {
+        perror("PUT_request: failed to get file stat.\n");
+        exit(EXIT_FAILURE);
+    }
+    ssize_t file_size = file_stat.st_size;
+    // open file
+    FILE *file = fopen(local, "r");
+    if (file == NULL) {
+        perror("PUT_request: failed to open file\n");
+        exit(EXIT_FAILURE);
+    }
+    // prep PUT request
+    char request[HEADER_SIZE];
+    snprintf(request, sizeof(request), "PUT %s\n", remote);
+    // Send PUT request
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("PUT_request: Failed to write request to socket\n");
+        return -1;
+    }
+    // send file size to server
+    ssize_t bytes_wrote_size = send_message_size(serverSocket, MESSAGE_SIZE_DIGITS, file_size);
+    if (bytes_wrote_size < 0) {
+        perror("PUT_request: Failed to write size to socket\n");
+        return -1;
+    }
+
+    // Write file contents to socket
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t msg_b_wrote = 0;
+    ssize_t b_left_to_write = file_size;
+    // Read message in chunks, write to file
+    while (msg_b_wrote < file_size) {
+        b_left_to_write = file_size - msg_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from from file
+        ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
+        if (b_read < b_to_WR) {
+            perror("PUT_request: failed to read from file\n");
+            status = -1;
+            break;
+        }
+        // write to socket
+        ssize_t b_wrote = write_all_to_socket(serverSocket, file_buffer, b_read);
+        if (b_wrote < 0) {
+            perror("PUT_request: failed to write msg\n");
+            status = -1;
+            break;
+        }
+        msg_b_wrote += b_wrote;
+    }
+    // shutdown wr to signal done
+    shutdown(serverSocket, SHUT_WR);
+    // close file
+    fclose(file);
+    // handle server response
+    if (status == 0) {
+        // get reply status line, note size of buffer reply is +1 of the return of read due to '\0'
+        char response[6];
+        if(read_line(response, sizeof(response)) < 0) {
+            print_invalid_response();
+            perror("PUT_request: Failed to read reply_status_line from socket\n");
+            return -1;
+        }
+        status = process_server_response(response);
+    }
+    if (status == 0) {
+        print_success();
+    }
+    // return status
+    return status;
 }
 
 // Handles LIST method, return status 0 success -1 error
