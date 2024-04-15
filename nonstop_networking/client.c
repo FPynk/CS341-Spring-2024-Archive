@@ -510,7 +510,7 @@ int main(int argc, char **argv) {
     free(args);
     // Close connection
     close_server_connection();
-    return 0;
+    return status;
 }
 
 /**
