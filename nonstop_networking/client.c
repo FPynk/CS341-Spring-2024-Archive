@@ -135,13 +135,15 @@ int connect_to_server(const char *host, const char *port) {
 // Note: Same as read_all_from_socket but 1 char at a time
 int read_line(char *buf, size_t buf_size) {
     ssize_t b_read = 0;
-    while (b_read < (ssize_t) buf_size - 1) { // leave space for null terminate
+    while (b_read < (ssize_t) buf_size) {
         ssize_t cur_read = read(serverSocket, buf + b_read, 1);
         if (cur_read == 0) { break; } // Done reading
         else if (cur_read > 0) { 
             char cur_char = buf[b_read];
+            // fprintf(stderr, "Read line char: %c\n", cur_char);
             // Check if current char is newline
             if (cur_char == '\n') {
+                // fprintf(stderr, "Read line char is newline\n");
                 buf[b_read] = '\0';
                 return b_read;
             }
@@ -162,6 +164,7 @@ int process_server_response(const char *response) {
     if (strcmp(response, "OK") == 0) {
         status = 0;
     } else if (strcmp(response, "ERROR") == 0) {
+        // fprintf(stderr, "PSR: ERROR\n");
         status = -1;
         // Get error message
         char error_message[HEADER_SIZE];
@@ -171,6 +174,7 @@ int process_server_response(const char *response) {
             perror("PSR: Error then Invalid response\n");
             status = 1;
         } else {
+            // fprintf(stderr, "PSR: print ERR msg\n");
             print_error_message(error_message);
         }
     } else {
