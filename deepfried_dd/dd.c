@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
             break;
         }
         // write full/partial blocks, update appropriate counters
-        fflsuh(stdin);
+        fflush(stdin);
         fwrite((void *) buf, read, 1, out);
         c_size += read;
         f_blocks += read == block_size ? 1 : 0;
