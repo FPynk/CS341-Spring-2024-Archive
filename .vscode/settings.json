@@ -14,7 +14,9 @@
         "errno.h": "c",
         "inet.h": "c",
         "stdlib.h": "c",
-        "system_error": "c"
+        "system_error": "c",
+        "stdbool.h": "c",
+        "fcntl.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
