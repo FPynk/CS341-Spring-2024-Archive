@@ -74,6 +74,13 @@ void sigint_handler() {
 
 // Shutdown server function WIP
 void shutdown_server() {
+    free_addr_info();
+    // close server socket
+    shutdown(serverSocket, SHUT_RDWR);
+    close(serverSocket);
+    // delete directory and contents
+    
+    exit(EXIT_SUCCESS);
 }
 
 // setups temp dir for server to use, accepts name as argument
@@ -136,7 +143,6 @@ int setup_socket(char *port) {
     int s = 0;
     if ((s = getaddrinfo(NULL, port, &hints, &addr_structs)) != 0) {
         fprintf(stderr, "setup_socket: getaddrinfo: %s\n", gai_strerror(s));
-        free_addr_info();
         shutdown_server();
         exit(EXIT_FAILURE);
     }
@@ -144,14 +150,12 @@ int setup_socket(char *port) {
     // bind socket to resolved addess and port
     if (bind(serverSocket, addr_structs->ai_addr, addr_structs->ai_addrlen) != 0) {
         perror("setup_socket: Failed to bind.\n");
-        free_addr_info();
         shutdown_server();
         exit(EXIT_FAILURE);
     }
     // listen for connections
     if (listen(serverSocket, EVENT_LIMIT) < 0) {
         perror("setup_socket: Failed to listen.\n");
-        free_addr_info();
         shutdown_server();
         exit(EXIT_FAILURE);
     }
