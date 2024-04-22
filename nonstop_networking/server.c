@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <fcntl.h>
+#include <sys/epoll.h>
 
 // error import
 #include <errno.h>
@@ -41,9 +42,10 @@
 
 
 // Global vars
-static char *dir;           // directory for server
-static int serverSocket;    // fd for server socket
+static char *dir;                     // directory for server
+static int serverSocket;              // fd for server socket
 static struct addrinfo *addr_structs; // dynamically allocated addr_info
+static int epoll_fd;                  // epoll file descriptor
 
 // Function declarations
 void sigpipe_handler();
@@ -75,11 +77,13 @@ void sigint_handler() {
 // Shutdown server function WIP
 void shutdown_server() {
     free_addr_info();
+    // close epoll
+    close(epoll_fd);
     // close server socket
     shutdown(serverSocket, SHUT_RDWR);
     close(serverSocket);
     // delete directory and contents
-    
+
     exit(EXIT_SUCCESS);
 }
 
@@ -163,7 +167,24 @@ int setup_socket(char *port) {
 }
 
 void run_server(char *port) {
+    // Create socket, set socket options, getaddrinfo, bind, listen, set non-blocking I/O
+    setup_socket(port);
 
+    // Create epoll
+    epoll_fd = epoll_create1(0);
+    if (epoll_fd == -1) {
+        perror("run_server: epoll_create1 failed");
+        shutdown_server();
+        exit(EXIT_FAILURE);
+    }
+    struct epoll_event event;
+    event.events = EPOLLIN;         // monitor for input events (reading)
+    event.data.fd = serverSocket;   // monitor server socket
+    if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, serverSocket, &event) == -1) {
+        perror("run_server: epoll_ctl failed");
+        shutdown_server();
+        exit(EXIT_FAILURE);
+    }
 }
 
 int main(int argc, char **argv) {
