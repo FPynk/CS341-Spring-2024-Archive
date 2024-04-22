@@ -46,6 +46,7 @@ static char *dir;                     // directory for server
 static int serverSocket;              // fd for server socket
 static struct addrinfo *addr_structs; // dynamically allocated addr_info
 static int epoll_fd;                  // epoll file descriptor
+static int end_session = 0;
 
 // Function declarations
 void sigpipe_handler();
@@ -54,6 +55,7 @@ void shutdown_server();
 void setup_temp_directory(char *name);
 int setup_socket(char *port);
 void free_addr_info();
+int set_non_blocking(int socket);
 void run_server();
 
 // signal handlers
@@ -105,6 +107,20 @@ void free_addr_info() {
         addr_structs = NULL;
     }
 } 
+// set non blocking I/O for the socket
+int set_non_blocking(int socket) {
+    int flags = fcntl(socket, F_GETFL, 0);
+    if (flags == -1) {
+        perror("set_non_blocking: Failed to get flags.\n");
+        return EXIT_FAILURE;
+    }
+    flags |= O_NONBLOCK;
+    if (fcntl(socket, F_SETFL, flags) == -1) {
+        perror("set_non_blocking: Failed to set non-blocking.\n");
+        return EXIT_FAILURE
+    }
+    return EXIT_SUCCESS;
+}
 
 // set up server socket and listen
 // does: socket opts, nonblocking, addr and port, bind, listen
@@ -125,14 +141,8 @@ int setup_socket(char *port) {
         exit(EXIT_FAILURE);
     }
     // set non_blocking I/O
-    int flags = fcntl(serverSocket, F_GETFL, 0);
-    if (flags == -1) {
-        perror("setup_socket: Failed to get flags.\n");
-        exit(EXIT_FAILURE);
-    }
-    flags |= O_NONBLOCK;
-    if (fcntl(serverSocket, F_SETFL, flags) == -1) {
-        perror("setup_socket: Failed to set non-blocking.\n");
+    if (set_non_blocking(serverSocket) != 0) {
+        perror("setup_socket: Failed to set_non_blocking.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -184,6 +194,41 @@ void run_server(char *port) {
         perror("run_server: epoll_ctl failed");
         shutdown_server();
         exit(EXIT_FAILURE);
+    }
+    /* epoll notes:
+    if from serverSocket, connect client, add to epoll_fd
+    if from client, check status and exe accordingly
+    if client request complete, remove from epoll_fd
+    */
+    struct epoll_event events[EVENT_LIMIT];
+    int n_fds = 0;
+    int i = 0;
+
+    // store client info
+    struct sockaddr_storage clientaddr;
+    clientaddr.ss_family = AF_INET;
+    socklen_t client_addr_size = sizeof(clientaddr);
+
+    // main loop to proccess server stuff
+    while(1) {
+        // break and shutdown
+        if (end_session) { break; }
+
+        // wait for events
+        int n_fds = epoll_wait(epoll_fd, events, EVENT_LIMIT, -1);
+        if (n_fds) {
+            perror("run_server: epoll_wait error.\n");
+            shutdown_server();
+            exit(EXIT_FAILURE);
+        }
+
+        // cycle and process each event
+        for (i = 0; i < n_fds; ++i) {
+            if (events[i].data.fd == serverSocket) {
+                // serverSocket event; accept
+                
+            }
+        }
     }
 }
 
