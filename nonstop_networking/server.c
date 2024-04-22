@@ -39,7 +39,9 @@
 // constants /definitions
 #define DIRECTORY_NAME "XXXXXX"     // specified by the spec
 #define EVENT_LIMIT 100
-
+#define HEADER_SIZE 1024
+#define KILOBYTE 1024
+#define BLOCK_SIZE 4 * KILOBYTE
 
 // Global vars
 static char *dir;                     // directory for server
@@ -47,15 +49,21 @@ static int serverSocket;              // fd for server socket
 static struct addrinfo *addr_structs; // dynamically allocated addr_info
 static int epoll_fd;                  // epoll file descriptor
 static int end_session = 0;
+static const size_t MESSAGE_SIZE_DIGITS = 8;
 
 // Function declarations
 void sigpipe_handler();
 void sigint_handler();
 void shutdown_server();
+int read_line(char *buf, size_t buf_size);
 void setup_temp_directory(char *name);
 int setup_socket(char *port);
 void free_addr_info();
 int set_non_blocking(int socket);
+int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size, struct epoll_event event);
+int process_client_reponse(int client_fd);
+int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
+                         int n_fds, struct epoll_event event, struct epoll_event *events);
 void run_server();
 
 // signal handlers
@@ -89,6 +97,32 @@ void shutdown_server() {
     exit(EXIT_SUCCESS);
 }
 
+// Reads single line from server socket
+// input: buffer to readline into, size of buffer
+// returns -1 error or failure; x no of bytes read does not incldue '\n'
+// Note: Same as read_all_from_socket but 1 char at a time
+int read_line(char *buf, size_t buf_size) {
+    ssize_t b_read = 0;
+    while (b_read < (ssize_t) buf_size) {
+        ssize_t cur_read = read(serverSocket, buf + b_read, 1);
+        if (cur_read == 0) { break; } // Done reading
+        else if (cur_read > 0) { 
+            char cur_char = buf[b_read];
+            // fprintf(stderr, "Read line char: %c\n", cur_char);
+            // Check if current char is newline
+            if (cur_char == '\n') {
+                // fprintf(stderr, "Read line char is newline\n");
+                buf[b_read] = '\0';
+                return b_read;
+            }
+            b_read += cur_read; // increment bytes read
+        } else if (cur_read == -1 && errno == EINTR) { continue; }// interruption, retry
+        else { return -1; } // error
+    }
+    buf[b_read] = '\0'; // null terminte, will replace
+    return b_read;
+}
+
 // setups temp dir for server to use, accepts name as argument
 void setup_temp_directory(char *name) {
     dir = malloc(strlen(name));
@@ -117,7 +151,7 @@ int set_non_blocking(int socket) {
     flags |= O_NONBLOCK;
     if (fcntl(socket, F_SETFL, flags) == -1) {
         perror("set_non_blocking: Failed to set non-blocking.\n");
-        return EXIT_FAILURE
+        return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;
 }
@@ -176,6 +210,79 @@ int setup_socket(char *port) {
     return 0;
 }
 
+// Accepts new client from server socket, add to epoll_fd
+// returns 
+int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size, struct epoll_event event) {
+    // serverSocket event; accept
+    int result = 0;
+    // Continue accepting while accept has clients to accept
+    while(1) {
+        int client_fd = accept(serverSocket, (struct sockaddr *) &clientaddr, &client_addr_size);
+        // Client error
+        if (client_fd == -1) {
+            // check other connections
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // all connections processed, break out
+                break;
+            } else {
+                perror("accept_new_client: Error accepting client.\n");
+                continue;
+            }   
+        }
+        // Set nonblocking I/O
+        if (set_non_blocking(client_fd) < 0) {
+            perror("accept_new_client: error nonblocking I/o.\n");
+            close(client_fd);
+            continue;
+        }
+        // add to epoll
+        // set client_fd event info; edge trigger try
+        event.data.fd = client_fd;
+        event.events = EPOLLIN | EPOLLET;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
+            perror("accept_new_client: epoll_ctl failed.\n");
+            close(client_fd);
+            continue;
+        }
+        ++result;
+    }
+    return result;
+}
+
+int process_client_reponse(int client_fd) {
+    char request[HEADER_SIZE];
+    if (read_line(request, sizeof(request)) < 0) {
+        print_invalid_response();
+        // TODO: send error message to client
+        
+    }
+    return 0;
+}
+
+int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
+                         int n_fds, struct epoll_event event, struct epoll_event *events) {
+    // cycle and process each event
+    for (int i = 0; i < n_fds; ++i) {
+        if (events[i].data.fd == serverSocket) {
+            // serverSocket event; accept
+            accept_new_client(clientaddr, client_addr_size, event);
+        } else {
+            // client event, process and close
+            int client_fd = events[i].data.fd;
+            if (events[i].events & EPOLLIN) {
+                // epoll as expected
+                process_client_reponse(client_fd);
+            } else if (event[i].events & EPOLLHUP || event[i].events & EPOLLERR) {
+                // Epoll fd error
+                perror("run_server: EPOLLHUP || EPOLERR.\n");
+                close(client_fd);
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+            }
+        }
+    }
+    return 0;
+}
+
 void run_server(char *port) {
     // Create socket, set socket options, getaddrinfo, bind, listen, set non-blocking I/O
     setup_socket(port);
@@ -187,6 +294,12 @@ void run_server(char *port) {
         shutdown_server();
         exit(EXIT_FAILURE);
     }
+        /* epoll notes:
+    if from serverSocket, connect client, add to epoll_fd
+    if from client, check status and exe accordingly
+    if client request complete, remove from epoll_fd
+    */
+    // use this to track fds to monitor
     struct epoll_event event;
     event.events = EPOLLIN;         // monitor for input events (reading)
     event.data.fd = serverSocket;   // monitor server socket
@@ -195,15 +308,9 @@ void run_server(char *port) {
         shutdown_server();
         exit(EXIT_FAILURE);
     }
-    /* epoll notes:
-    if from serverSocket, connect client, add to epoll_fd
-    if from client, check status and exe accordingly
-    if client request complete, remove from epoll_fd
-    */
+    // events we need to handle
     struct epoll_event events[EVENT_LIMIT];
     int n_fds = 0;
-    int i = 0;
-
     // store client info
     struct sockaddr_storage clientaddr;
     clientaddr.ss_family = AF_INET;
@@ -215,21 +322,17 @@ void run_server(char *port) {
         if (end_session) { break; }
 
         // wait for events
-        int n_fds = epoll_wait(epoll_fd, events, EVENT_LIMIT, -1);
+        n_fds = epoll_wait(epoll_fd, events, EVENT_LIMIT, -1);
         if (n_fds) {
             perror("run_server: epoll_wait error.\n");
             shutdown_server();
             exit(EXIT_FAILURE);
         }
 
-        // cycle and process each event
-        for (i = 0; i < n_fds; ++i) {
-            if (events[i].data.fd == serverSocket) {
-                // serverSocket event; accept
-                
-            }
-        }
+        // Process events
+        process_epoll_events(clientaddr, client_addr_size, n_fds, event, events);
     }
+    shutdown_server();
 }
 
 int main(int argc, char **argv) {
