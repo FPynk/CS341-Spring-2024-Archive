@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 // server imports
 #include <sys/types.h>
@@ -39,28 +40,41 @@
 // constants /definitions
 #define DIRECTORY_NAME "XXXXXX"     // specified by the spec
 #define EVENT_LIMIT 100
+#define MAX_FILENAME_LENGTH 255
 #define HEADER_SIZE 1024
 #define KILOBYTE 1024
 #define BLOCK_SIZE 4 * KILOBYTE
+#define ERROR "ERROR"
+#define OK "OK"
+#define NO_MSG ""
+#define HTTPS_BAD_REQUEST "400"
+#define HTTPS_NOT_FOUND "404"
+// #define INVALID_FILE_SIZE "Too much or too little data in file"
+#define FAILED_WRITE "Failed to write to file on server"
 
 // Global vars
 static char *dir;                     // directory for server
 static int serverSocket;              // fd for server socket
 static struct addrinfo *addr_structs; // dynamically allocated addr_info
 static int epoll_fd;                  // epoll file descriptor
-static int end_session = 0;
 static const size_t MESSAGE_SIZE_DIGITS = 8;
 
 // Function declarations
 void sigpipe_handler();
 void sigint_handler();
+int remove_directory(const char *path);
 void shutdown_server();
-int read_line(char *buf, size_t buf_size);
+int read_line(int socket, char *buf, size_t buf_size);
+int send_response(const char *response_type, const char *msg, int client_fd);
 void setup_temp_directory(char *name);
 int setup_socket(char *port);
 void free_addr_info();
 int set_non_blocking(int socket);
 int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size, struct epoll_event event);
+int LIST_request(int client_fd);
+int GET_request(int client_fd, char *filename);
+int PUT_request(int client_fd, char *filename);
+int DELETE_request(int client_fd, char *filename);
 int process_client_reponse(int client_fd);
 int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
                          int n_fds, struct epoll_event event, struct epoll_event *events);
@@ -84,6 +98,50 @@ void sigint_handler() {
     }
 }
 
+int remove_directory(const char *path) {
+    DIR *del_dir = opendir(path);
+    if (del_dir == NULL) {
+        perror("shutdown_server: failed to open directory");
+        return -1;
+    }
+    struct dirent *entry;
+    // keep track of result of deletion
+    int r = 0;
+    while ((entry = readdir(del_dir)) != NULL) {
+        char full_path[HEADER_SIZE];
+        // parent/ cur directory
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        // format path
+        snprintf(full_path, sizeof(full_path), "%s/%s", path, entry->d_name);
+        // edit stat file
+        struct stat statbuf;
+        if (stat(full_path, &statbuf) == -1) {
+            perror("Failed to gget file status");
+            r = -1;
+            break;
+        }
+        if (S_ISDIR(statbuf.st_mode)) {
+            r = remove_directory(full_path);
+        } else {
+            r = unlink(full_path);
+        }
+        if (r == -1) {
+            perror("Error deleting file or direcotry.\n");
+            break;
+        }
+    }
+    closedir(del_dir);
+    if (r == 0) {
+        r = rmdir(path);
+        if (r == -1) {
+            perror("Error removing directory.\n");
+        }
+    }
+    return r;
+}
+
 // Shutdown server function WIP
 void shutdown_server() {
     free_addr_info();
@@ -93,7 +151,11 @@ void shutdown_server() {
     shutdown(serverSocket, SHUT_RDWR);
     close(serverSocket);
     // delete directory and contents
-
+    if (remove_directory(dir) == -1) {
+        perror("Shutdown_server: failed to remove directory.\n");
+        exit(EXIT_FAILURE);
+    }
+    free(dir);
     exit(EXIT_SUCCESS);
 }
 
@@ -101,10 +163,10 @@ void shutdown_server() {
 // input: buffer to readline into, size of buffer
 // returns -1 error or failure; x no of bytes read does not incldue '\n'
 // Note: Same as read_all_from_socket but 1 char at a time
-int read_line(char *buf, size_t buf_size) {
+int read_line(int socket, char *buf, size_t buf_size) {
     ssize_t b_read = 0;
     while (b_read < (ssize_t) buf_size) {
-        ssize_t cur_read = read(serverSocket, buf + b_read, 1);
+        ssize_t cur_read = read(socket, buf + b_read, 1);
         if (cur_read == 0) { break; } // Done reading
         else if (cur_read > 0) { 
             char cur_char = buf[b_read];
@@ -123,9 +185,20 @@ int read_line(char *buf, size_t buf_size) {
     return b_read;
 }
 
+// Sends reponse back to client
+int send_response(const char *response_type, const char *msg, int client_fd) {
+    char response[HEADER_SIZE];
+    if (strcmp(response_type, ERROR) == 0) {
+        snprintf(response, sizeof(response), "%s\n%s\n", response_type, msg);
+    } else {
+        snprintf(response, sizeof(response), "%s\n", response_type);
+    }
+    return write_all_to_socket(client_fd, response, strlen(response));
+}
+
 // setups temp dir for server to use, accepts name as argument
 void setup_temp_directory(char *name) {
-    dir = malloc(strlen(name));
+    dir = malloc(sizeof(name));
     strcpy(dir, name);
     dir = mkdtemp(dir);
     if (dir == NULL) {
@@ -249,12 +322,215 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
     return result;
 }
 
+int LIST_request(int client_fd) {
+    // send ok response
+    send_response(OK, NO_MSG, client_fd);
+
+    
+    return 0;
+}
+
+int GET_request(int client_fd, char *filename) {
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    // get file stats, size
+    struct stat file_stat;
+    if (stat(path, &file_stat) != 0) {
+        perror("GET_request: failed to get file stat.\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    ssize_t file_size = file_stat.st_size;
+    // open file
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        perror("GET_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    // send response
+    // RESPONSE\n
+    // [Error Message]\n
+    // [File size][Binary Data]
+    if (send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
+    if (send_message_size(client_fd, MESSAGE_SIZE_DIGITS, file_size) < 0) {
+        return EXIT_FAILURE;
+    }
+    // Write file contents to socket
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t msg_b_wrote = 0;
+    ssize_t b_left_to_write = file_size;
+    // Read message in chunks, write to file
+    while (msg_b_wrote < file_size) {
+        b_left_to_write = file_size - msg_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from from file
+        ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
+        if (b_read < b_to_WR) {
+            perror("GET_request: failed to read from file\n");
+            status = -1;
+            break;
+        }
+        // write to socket
+        ssize_t b_wrote = write_all_to_socket(client_fd, file_buffer, b_read);
+        if (b_wrote < 0) {
+            perror("GET_request: failed to write msg\n");
+            status = -1;
+            break;
+        }
+        msg_b_wrote += b_wrote;
+    }
+    // did not shutdown, done ltr
+    // close file
+    fclose(file);
+    return status;
+}
+
+int PUT_request(int client_fd, char *filename) {
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    // open file
+    FILE *file = fopen(path, "w+");
+    if (file == NULL) {
+        perror("PUT_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    ssize_t msg_size = get_message_size(client_fd, MESSAGE_SIZE_DIGITS);
+    if (msg_size < 0) {
+        perror("PUT_request: failed get size\n");
+        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+        return EXIT_FAILURE;
+    }
+    // fprintf(stderr, "msgsize: %ld\n", msg_size);
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = 0;
+    ssize_t b_left_to_write = msg_size;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            perror("PUT_request: failed to read msg\n");
+            status = -1;
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_to_WR) { // cannot be b_read
+            perror("PUT_request: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+    }
+    // close file
+    fclose(file);
+    // check file sizes
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(serverSocket, file_buffer, 1);
+    if (b_read > 0) {
+        perror("PUT_request: too much data\n");
+        status = -1;
+    }
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        perror("PUT_request: too little data\n");
+        status = -1;
+    }
+    // send ERROR response if status -1
+    if (status == -1) {
+        perror("PUT_request: status -1\n");
+        send_response(ERROR, FAILED_WRITE, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Send OK response
+    if (send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
+    return status;
+}
+
+int DELETE_request(int client_fd, char *filename) {
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+
+    // open file
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        perror("DELETE_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    fclose(file);
+    if (unlink(path) != 0) {
+        perror("DELETE_request: failed to delete file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    send_response(OK, NO_MSG, client_fd);
+    return 0;
+}
+
 int process_client_reponse(int client_fd) {
+    // Get header
     char request[HEADER_SIZE];
-    if (read_line(request, sizeof(request)) < 0) {
+    if (read_line(client_fd, request, sizeof(request)) < 0) {
         print_invalid_response();
-        // TODO: send error message to client
-        
+        perror("process_client_reponse: could not read line.\n");
+        return EXIT_FAILURE;
+    }
+    // Parse VERB
+    char *space_pos = strchr(request, ' ');
+    if (!space_pos && strcmp(request, "LIST") == 0) {
+        // handle LIST
+        LIST_request(client_fd);
+    } else if (space_pos) {
+        // Check GET, PUT or DEL
+        // split request line in 2
+        *space_pos = '\0';
+        char *filename = space_pos + 1;
+        char *verb = request;
+        // check filename length
+        if (strlen(filename) > MAX_FILENAME_LENGTH) {
+            print_invalid_response();
+            perror("process_client_reponse: MAX_FILENAME_LENGTH exceeded.\n");
+            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            return EXIT_FAILURE;
+        }
+        // dispatch
+        if (strcmp(verb, "GET") == 0) {
+            GET_request(client_fd, filename);
+        } else if (strcmp(verb, "PUT") == 0) {
+            PUT_request(client_fd, filename);
+        } else if (strcmp(verb, "DELETE") == 0) {
+            DELETE_request(client_fd, filename);
+        } else {
+            print_invalid_response();
+            perror("process_client_reponse: unknown verb.\n");
+            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            return EXIT_FAILURE;
+        }
+    } else {
+        print_invalid_response();
+        perror("process_client_reponse: unknown request.\n");
+        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+        return EXIT_FAILURE;
     }
     return 0;
 }
@@ -272,7 +548,11 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
             if (events[i].events & EPOLLIN) {
                 // epoll as expected
                 process_client_reponse(client_fd);
-            } else if (event[i].events & EPOLLHUP || event[i].events & EPOLLERR) {
+                // close client_fd and remove from monitoring
+                shutdown(client_fd, SHUT_RDWR);
+                close(client_fd);
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+            } else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR) {
                 // Epoll fd error
                 perror("run_server: EPOLLHUP || EPOLERR.\n");
                 close(client_fd);
@@ -318,12 +598,11 @@ void run_server(char *port) {
 
     // main loop to proccess server stuff
     while(1) {
-        // break and shutdown
-        if (end_session) { break; }
-
         // wait for events
+        // fprintf(stderr, "epoll_wait\n");
         n_fds = epoll_wait(epoll_fd, events, EVENT_LIMIT, -1);
-        if (n_fds) {
+        // fprintf(stderr, "n_fds: %d\n", n_fds);
+        if (n_fds < 0) {
             perror("run_server: epoll_wait error.\n");
             shutdown_server();
             exit(EXIT_FAILURE);
