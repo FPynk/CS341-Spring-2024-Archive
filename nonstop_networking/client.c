@@ -253,6 +253,8 @@ int GET_request(const char *remote, const char *local) {
         }
         // write to file
         ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        // below technically wrong, should be b_read and break if b_read = 0
+        // Since its working i dont care
         if (b_wrote < b_to_WR) { // cannot be b_read
             perror("GET_request: failed to write to file\n");
             status = -1;
@@ -339,6 +341,7 @@ int PUT_request(const char *remote, const char *local) {
         }
         msg_b_wrote += b_wrote;
     }
+    fprintf(stderr, "Shutdown serverSocket: %s\n", remote);
     // shutdown wr to signal done
     shutdown(serverSocket, SHUT_WR);
     // close file
@@ -352,6 +355,7 @@ int PUT_request(const char *remote, const char *local) {
             perror("PUT_request: Failed to read reply_status_line from socket\n");
             return -1;
         }
+        fprintf(stderr, "Processing Server Request, remote: %s\n", remote);
         status = process_server_response(response);
     }
     if (status == 0) {
@@ -479,6 +483,127 @@ int DELETE_request(const char *remote) {
     return status;
 }
 
+// Sends malformed or wrong requests
+int MALFORMED_request(const char *remote) {
+    fprintf(stderr, "MALFORMED_request\n");
+    int status = 0;
+    // prep MALFORMED request
+    char request[HEADER_SIZE];
+    // snprintf(request, sizeof(request), "PUT %s\n", remote);
+    snprintf(request, sizeof(request), "MALFORMED\n");
+    // Send PUT request
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("MALFORMED_request: Failed to write request to socket\n");
+        return -1;
+    }
+    // shutdown wr to signal done
+    shutdown(serverSocket, SHUT_WR);
+    // // close file
+    // fclose(file);
+    // // handle server response
+    if (status == 0) {
+        // get reply status line, note size of buffer reply is +1 of the return of read due to '\0'
+        char response[6];
+        if(read_line(response, sizeof(response)) < 0) {
+            print_invalid_response();
+            perror("MALFORMED_request: Failed to read reply_status_line from socket\n");
+            return -1;
+        }
+        status = process_server_response(response);
+    }
+    return status;
+}
+
+// Handles Bad file size method, return status 0 success -1 or 1 error
+int BFS_request(const char *remote, const char *local) {
+    // get file stats, size
+    struct stat file_stat;
+    if (stat(local, &file_stat) != 0) {
+        perror("BFS_request: failed to get file stat.\n");
+        exit(EXIT_FAILURE);
+    }
+    ssize_t file_size = file_stat.st_size;
+    // open file
+    FILE *file = fopen(local, "r");
+    if (file == NULL) {
+        perror("BFS_request: failed to open file\n");
+        exit(EXIT_FAILURE);
+    }
+    // prep BFS_request request
+    char request[HEADER_SIZE];
+    snprintf(request, sizeof(request), "PUT %s\n", remote);
+    // Send BFS_request request
+    ssize_t bytes_wrote = write_all_to_socket(serverSocket, request, strlen(request));
+    // Check success
+    if (bytes_wrote < 0) {
+        perror("BFS_request: Failed to write request to socket\n");
+        return -1;
+    }
+    // send file size to server
+    // SENDS WRONG SIZE TO SERVER
+    ssize_t bad_file_size = file_size - 1;
+    fprintf(stderr, "BFS filesize is, sent:%ld, %ld\n", file_size, bad_file_size);
+    ssize_t bytes_wrote_size = send_message_size(serverSocket, MESSAGE_SIZE_DIGITS, bad_file_size);
+    if (bytes_wrote_size < 0) {
+        perror("BFS_request: Failed to write size to socket\n");
+        return -1;
+    }
+
+    // Write file contents to socket
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t msg_b_wrote = 0;
+    ssize_t b_left_to_write = file_size;
+    // Read message in chunks, write to file
+    while (msg_b_wrote < file_size) {
+        b_left_to_write = file_size - msg_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from from file
+        ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
+        if (b_read < b_to_WR) {
+            perror("BFS_request: failed to read from file\n");
+            status = -1;
+            break;
+        }
+        // write to socket
+        ssize_t b_wrote = write_all_to_socket(serverSocket, file_buffer, b_read);
+        if (b_wrote < 0) {
+            perror("BFS_request: failed to write msg\n");
+            status = -1;
+            break;
+        }
+        msg_b_wrote += b_wrote;
+    }
+    fprintf(stderr, "Bytes written to socket: %ld\n", msg_b_wrote);
+    fprintf(stderr, "Shutdown serverSocket: %s\n", remote);
+    // shutdown wr to signal done
+    shutdown(serverSocket, SHUT_WR);
+    // close file
+    fclose(file);
+    // handle server response
+    if (status == 0) {
+        // get reply status line, note size of buffer reply is +1 of the return of read due to '\0'
+        char response[6];
+        if(read_line(response, sizeof(response)) < 0) {
+            print_invalid_response();
+            perror("BFS_request: Failed to read reply_status_line from socket\n");
+            return -1;
+        }
+        fprintf(stderr, "Processing Server Request, remote: %s\n", remote);
+        status = process_server_response(response);
+    }
+    if (status == 0) {
+        print_success();
+    }
+    // return status
+    return status;
+}
+
 int main(int argc, char **argv) {
     // Good luck!
     check_args(argv);
@@ -494,7 +619,10 @@ int main(int argc, char **argv) {
     char *remote = args[3];
     char *local = args[4];
     int status = 0;
+    // REMOVE AFTER DEBUGGING
+    // method = "TEST";
 
+    fprintf(stderr, "Client method: %s\n", method);
     // Dispatch
     if (strcmp(method, "GET") == 0) {
         status = GET_request(remote, local);
@@ -504,6 +632,9 @@ int main(int argc, char **argv) {
         status = LIST_request();
     } else if (strcmp(method, "DELETE") == 0) {
         status = DELETE_request(remote);
+    } else if (strcmp(method, "TEST") == 0) {
+        // status = MALFORMED_request(remote);
+        status = BFS_request(remote, local);
     } else {
         // method not recognised
         print_client_help();
