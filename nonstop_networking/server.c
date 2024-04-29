@@ -49,6 +49,7 @@
 #define NO_MSG ""
 #define HTTPS_BAD_REQUEST "400"
 #define HTTPS_NOT_FOUND "404"
+#define MAX_RETRY 20
 // #define INVALID_FILE_SIZE "Too much or too little data in file"
 #define FAILED_WRITE "Failed to write to file on server"
 
@@ -324,10 +325,61 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
 
 int LIST_request(int client_fd) {
     // send ok response
+    fprintf(stderr, "LIST_request\n");
     send_response(OK, NO_MSG, client_fd);
 
-    
-    return 0;
+    // open directory
+    DIR *read_dir = opendir(dir);
+    if (read_dir == NULL) {
+        perror("LIST_request: failed to open directory");
+        return -1;
+    }
+
+    struct dirent *entry;
+    // Collect file names in vector
+    vector *file_names = string_vector_create();
+    size_t message_size = 0;
+
+    while ((entry = readdir(read_dir)) != NULL) {
+        // parent/ cur directory
+        char *file_name = entry->d_name;
+        if (strcmp(file_name, ".") != 0 && strcmp(file_name, "..") != 0) {
+            fprintf(stderr, "file name is: %s\n", file_name);
+            vector_push_back(file_names, file_name);
+            message_size += strlen(file_name) + 1; // include \0 so we can put \n
+        }
+    }
+    // close dir
+    closedir(read_dir);
+    // adjust size
+    if (message_size > 0) {
+        message_size--; // remove last \n
+    }
+    // send message size
+    send_message_size(client_fd, MESSAGE_SIZE_DIGITS, message_size);
+    size_t total_files = vector_size(file_names);
+    int status = 0;
+    // send filenames + check for success
+    for (size_t i = 0; i < total_files; ++i) {
+        char *file_name = (char *) vector_get(file_names, i);
+        size_t bytes_sent = write_all_to_socket(client_fd, file_name, strlen(file_name));
+        if (bytes_sent < 0) {
+            perror("LIST_request: Failed to send file_name\n");
+            status = EXIT_FAILURE;
+            break;
+        }
+        if (i < total_files - 1) {
+            bytes_sent = write_all_to_socket(client_fd, "\n", 1);
+        }
+        if (bytes_sent < 0) {
+            perror("LIST_request: Failed to send newline\n");
+            status = EXIT_FAILURE;
+            break;
+        }
+    }
+    // manage memory
+    vector_destroy(file_names);
+    return status;
 }
 
 int GET_request(int client_fd, char *filename) {
@@ -397,6 +449,7 @@ int PUT_request(int client_fd, char *filename) {
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    fprintf(stderr, "PUT: %s\n", filename);
     // open file
     FILE *file = fopen(path, "w+");
     if (file == NULL) {
@@ -416,6 +469,7 @@ int PUT_request(int client_fd, char *filename) {
     char file_buffer[BLOCK_SIZE];
     ssize_t file_b_wrote = 0;
     ssize_t b_left_to_write = msg_size;
+    // int retry_count = 0;
     // Read message in chunks, write to file
     while (file_b_wrote < msg_size) {
         b_left_to_write = msg_size - file_b_wrote;
@@ -450,6 +504,7 @@ int PUT_request(int client_fd, char *filename) {
     // Check too little data
     if (file_b_wrote < msg_size) {
         perror("PUT_request: too little data\n");
+        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
         status = -1;
     }
     // send ERROR response if status -1
