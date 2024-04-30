@@ -105,9 +105,7 @@ void free_addr_info();
 int set_non_blocking(int socket);
 int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
                      struct epoll_event event);
-int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
-                                char *file_buffer, size_t buffer_size,
-                                int client_fd, client_info *current_client_info);
+int put_read_socket_write_file(client_info *current_client_info);
 int LIST_request(int client_fd);
 int GET_request(int client_fd, char *filename);
 int PUT_request(int client_fd, char *filename);
@@ -429,9 +427,11 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
 
 // modularised put section RDWR to be dynamic
 // returns status
-int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
-                                char *file_buffer, size_t buffer_size,
-                                int client_fd, client_info *current_client_info) {
+int put_read_socket_write_file(client_info *current_client_info) { 
+    // setup of variables
+    ssize_t file_bytes_written = current_client_info->bytes_processed;
+    ssize_t msg_size = current_client_info->msg_size;
+    int client_fd = current_client_info->client_fd;
     // fprintf(stderr, "msgsize: %ld\n", msg_size);
     // open file
     char *filename = current_client_info->filename;
@@ -440,15 +440,23 @@ int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
     fprintf(stderr, "PUT: %s\n", filename);
     // open file
-    FILE *file = fopen(path, "w+");
+    FILE *file = fopen(path, "a"); // make sure that we dont delete the file
     if (file == NULL) {
-        perror("PUT_request: failed to open file\n");
+        perror("PRSWF: failed to open file\n");
         send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
         return EXIT_FAILURE;
     }
+    // Set the starting write position using fseek
+    if (fseek(file, file_bytes_written, SEEK_SET) != 0) {
+        perror("PRSWF: Failed to seek to required file position");
+        fclose(file);
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    fprintf(stderr, "Starting off at byte %ld\n", file_bytes_written);
     // Stuff i need to read/write the file with
     int status = 0;
-    // char file_buffer[BLOCK_SIZE];
+    char file_buffer[BLOCK_SIZE];
     ssize_t file_b_wrote = file_bytes_written;
     ssize_t b_left_to_write = msg_size - file_b_wrote;
     // int retry_count = 0;
@@ -456,7 +464,7 @@ int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
     while (file_b_wrote < msg_size) {
         b_left_to_write = msg_size - file_b_wrote;
         // read/ write in blocks
-        ssize_t b_to_WR = min(buffer_size, b_left_to_write);
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
         // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
         // read from socket
         ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
@@ -468,8 +476,8 @@ int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
             if (errno == EAGAIN) {
                 // try to rerun PUT
                 perror("PRSWF: EAGAIN, nothing to read\n");
-                // status = 2; // uncomment when can handle this status type, if not will break
-                continue;
+                status = 2; // uncomment when can handle this status type, if not will break
+                // continue;
                 // return status;
             }
             break;
@@ -490,6 +498,40 @@ int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
         current_client_info->bytes_processed = file_b_wrote;
     }
     fclose(file);
+    // Handle no data in socket
+    if (status == 2) {
+        perror("PRSWF: 2 no data in socket, return later\n");
+        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
+        return status;
+    }
+    // update client info
+    current_client_info->stage = DONE;
+
+    // check file sizes
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
+    fprintf(stderr, "Try to read more bytes: %ld\n", b_read);
+    if (b_read > 0) {
+        perror("PRSWF: too much data\n");
+        status = -1;
+    }
+    fprintf(stderr, "bytes written: %ld\n", file_b_wrote);
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        perror("PRSWF: too little data\n");
+        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
+        status = -1;
+    }
+    // send ERROR response if status -1
+    if (status == -1) {
+        perror("PRSWF: status -1\n");
+        send_response(ERROR, BAD_FILE_SIZE, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Send OK response: additional check added to only send if all bytes written
+    if (file_b_wrote == msg_size && send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
     return status;
 }
 
@@ -695,8 +737,9 @@ int PUT_request(int client_fd, char *filename) {
             if (errno == EAGAIN) {
                 // try to rerun PUT
                 perror("PUT_request: EAGAIN, nothing to read\n");
-                // status = 2; // uncomment when can handle this status type, if not will break
-                continue;
+                status = 2; // uncomment when can handle this status type, if not will break
+                // continue;
+                break;
                 // return status;
             }
             break;
@@ -719,6 +762,12 @@ int PUT_request(int client_fd, char *filename) {
     // close file
     fclose(file);
 
+    // Handle no data in socket
+    if (status == 2) {
+        perror("PUT_request: 2 no data in socket, return later\n");
+        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
+        return status;
+    }
     // update client info
     current_client_info->stage = DONE;
 
@@ -855,6 +904,7 @@ int process_client_reponse(int client_fd) {
 
 int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
                          int n_fds, struct epoll_event event, struct epoll_event *events) {
+    int status = 0;
     // cycle and process each event
     fprintf(stderr, "Processing Epoll\n");
     for (int i = 0; i < n_fds; ++i) {
@@ -867,10 +917,34 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
             // set up dictionary with details, resume when you get it again
             // client event, process and close
             int client_fd = events[i].data.fd;
+            
             if (events[i].events & EPOLLIN) {
                 // epoll as expected
                 fprintf(stderr, "PROCESSING EVENT %d CLIENT_FD: %d\n",i , client_fd);
-                int status = process_client_reponse(client_fd);
+                // ADDED WIP for halfway done stuff
+                if (dictionary_contains(client_dictionary, &client_fd)) {
+                    fprintf(stderr, "Client is halfway %d\n", client_fd);
+                    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+                    // sanity checking
+                    if (current_client_info->stage == RDWR_LOOP && current_client_info->status == 2
+                        && current_client_info->verb_ == PUT) {
+                            status = put_read_socket_write_file(current_client_info);
+                            current_client_info->status = status;
+                            // Remove only if the request is finished/ has error
+                            if (current_client_info->stage == DONE || current_client_info->status != 2) {
+                                print_client_info(client_fd);
+                                fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+                                delete_remove_dictionary_entry(client_fd);
+                            }
+                        } else {
+                            perror("YOU DONE FUCKED UP BOI\n");
+                            print_client_info(client_fd);
+                            // help me
+                        }
+                } else {
+                    // first time
+                    status = process_client_reponse(client_fd);
+                }
                 // close client_fd and remove from monitoring
                 if (status != 2) {
                     fprintf(stderr, "Shutdown, Close, removed client_fd: %d\n", client_fd);
@@ -894,7 +968,7 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
             }
         }
     }
-    return 0;
+    return status;
 }
 
 void run_server(char *port) {
