@@ -35,7 +35,7 @@
 /*
 Dictionary of client fd to info
 if interrrupted, get stage it was at, then resume stage
-
+Shutdown: server, handle the dictionary memory
 */ 
 
 // Current status
@@ -67,11 +67,35 @@ static int serverSocket;              // fd for server socket
 static struct addrinfo *addr_structs; // dynamically allocated addr_info
 static int epoll_fd;                  // epoll file descriptor
 static const size_t MESSAGE_SIZE_DIGITS = 8;
+static dictionary *client_dictionary;
+
+// enums for stage
+typedef enum {
+    UNINITIALISED, // first set up
+    OTHER,
+    RDWR_LOOP,
+    DONE,
+} Stage;
+
+// client_info struct
+typedef struct client_info {
+    int client_fd;
+    verb verb_;
+    char filename[MAX_FILENAME_LENGTH + 1];         // heap, remember to free
+    size_t filename_length; // length of filename
+    ssize_t msg_size;       // original msg_ize
+    ssize_t bytes_processed;// bytes written
+    Stage stage;            // stage its in, currently only supports jumping back mid PUT loop
+    int status;             // status, should be 0 if OK, 2 if interrupted, 1 and -1 likely error
+} client_info;
 
 // Function declarations
 void sigpipe_handler();
 void sigint_handler();
 int remove_directory(const char *path);
+client_info *init_empty_client_info();
+void delete_remove_dictionary_entry(int client_fd);
+void print_client_info(int client_fd);
 void shutdown_server();
 int read_line(int socket, char *buf, size_t buf_size);
 int send_response(const char *response_type, const char *msg, int client_fd);
@@ -79,7 +103,11 @@ void setup_temp_directory(char *name);
 int setup_socket(char *port);
 void free_addr_info();
 int set_non_blocking(int socket);
-int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size, struct epoll_event event);
+int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
+                     struct epoll_event event);
+int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
+                                char *file_buffer, size_t buffer_size,
+                                int client_fd, client_info *current_client_info);
 int LIST_request(int client_fd);
 int GET_request(int client_fd, char *filename);
 int PUT_request(int client_fd, char *filename);
@@ -151,6 +179,49 @@ int remove_directory(const char *path) {
     return r;
 }
 
+// Inits blank client info, allocated on heap
+client_info *init_empty_client_info() {
+    client_info *client_fd_info = malloc(sizeof(client_info));
+    if (client_fd_info == NULL) {
+        perror("init_empty_client_info: Failed to malloc\n");
+        return NULL;
+    }
+    client_fd_info->client_fd = 0;
+    client_fd_info->verb_ = V_UNKNOWN;
+    client_fd_info->filename[0] = '\0';
+    client_fd_info->filename_length = 0;
+    client_fd_info->msg_size = 0;
+    client_fd_info->bytes_processed = 0;
+    client_fd_info->stage = UNINITIALISED;
+    client_fd_info->status = 0;
+    return client_fd_info;
+}
+
+void delete_remove_dictionary_entry(int client_fd) {
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    if (current_client_info) {
+        free(current_client_info);
+        dictionary_remove(client_dictionary, &client_fd);
+    } else {
+        perror("delete_remove_dictionary_entry: entry DNE");
+    }
+}
+
+void print_client_info(int client_fd) {
+    client_info *client_fd_info = dictionary_get(client_dictionary, &client_fd);
+    if (client_fd_info) {
+        fprintf(stderr, "Client details: \
+        client_fd: %d verb: %d filename: %s \
+        filename_length: %ld msg_size: %ld \
+        bytes_processed: %ld stage: %d status: %d\n",
+        client_fd_info->client_fd, client_fd_info->verb_, client_fd_info->filename,
+        client_fd_info->filename_length, client_fd_info->msg_size,
+        client_fd_info->bytes_processed, client_fd_info->stage, client_fd_info->status);
+    } else {
+        perror("print_client_info: entry DNE");
+    }
+}
+
 // Shutdown server function WIP
 void shutdown_server() {
     free_addr_info();
@@ -159,6 +230,17 @@ void shutdown_server() {
     // close server socket
     shutdown(serverSocket, SHUT_RDWR);
     close(serverSocket);
+    if (client_dictionary) {
+        // TODO ERASE DICITONARY CONTENTS
+        vector *client_dictionary_keys = dictionary_keys(client_dictionary);
+        for (size_t i = 0; i < vector_size(client_dictionary_keys); ++i) {
+            int key = *((int *) vector_get(client_dictionary_keys, i));
+            delete_remove_dictionary_entry(key);
+        }
+        vector_destroy(client_dictionary_keys);
+        // WILL BE SHALLOW
+        dictionary_destroy(client_dictionary);
+    }
     // delete directory and contents
     if (remove_directory(dir) == -1) {
         perror("Shutdown_server: failed to remove directory.\n");
@@ -324,28 +406,100 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
         // add to epoll
         // set client_fd event info; edge trigger try
         fprintf(stderr, "Added to event client_fd: %d\n", client_fd);
-        struct epoll_event client_event;
-        memset(&client_event, 0, sizeof(client_event));
-        client_event.events = EPOLLIN | EPOLLET;         // monitor for input events (reading)
-        client_event.data.fd = client_fd;
-        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_event) == -1) {
-            perror("accept_new_client: epoll_ctl failed.\n");
-            close(client_fd);
-            continue;
-        }
-        // event.data.fd = client_fd;
-        // event.events = EPOLLIN | EPOLLET;
-        // if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
+        // struct epoll_event client_event;
+        // memset(&client_event, 0, sizeof(client_event));
+        // client_event.events = EPOLLIN | EPOLLET;         // monitor for input events (reading)
+        // client_event.data.fd = client_fd;
+        // if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &client_event) == -1) {
         //     perror("accept_new_client: epoll_ctl failed.\n");
         //     close(client_fd);
         //     continue;
         // }
+        event.data.fd = client_fd;
+        event.events = EPOLLIN | EPOLLET;
+        if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_fd, &event) == -1) {
+            perror("accept_new_client: epoll_ctl failed.\n");
+            close(client_fd);
+            continue;
+        }
         ++result;
     }
     return result;
 }
 
+// modularised put section RDWR to be dynamic
+// returns status
+int put_read_socket_write_file(ssize_t file_bytes_written, ssize_t msg_size,
+                                char *file_buffer, size_t buffer_size,
+                                int client_fd, client_info *current_client_info) {
+    // fprintf(stderr, "msgsize: %ld\n", msg_size);
+    // open file
+    char *filename = current_client_info->filename;
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    fprintf(stderr, "PUT: %s\n", filename);
+    // open file
+    FILE *file = fopen(path, "w+");
+    if (file == NULL) {
+        perror("PUT_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Stuff i need to read/write the file with
+    int status = 0;
+    // char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = file_bytes_written;
+    ssize_t b_left_to_write = msg_size - file_b_wrote;
+    // int retry_count = 0;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(buffer_size, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            // Error reading, means client has not closed yet
+            perror("PRSWF: failed to read msg\n");
+            // status = -1;
+            if (errno == EAGAIN) {
+                // try to rerun PUT
+                perror("PRSWF: EAGAIN, nothing to read\n");
+                // status = 2; // uncomment when can handle this status type, if not will break
+                continue;
+                // return status;
+            }
+            break;
+        } else if (b_read == 0) {
+            // Client closed writing on its end, cannot expect more bytes
+            // break check for sizes
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_read) { // changed to b_read
+            perror("PRSWF: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+        current_client_info->bytes_processed = file_b_wrote;
+    }
+    fclose(file);
+    return status;
+}
+
 int LIST_request(int client_fd) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = LIST;
+    current_client_info->stage = OTHER;
+
     // send ok response
     fprintf(stderr, "LIST_request\n");
     send_response(OK, NO_MSG, client_fd);
@@ -377,6 +531,11 @@ int LIST_request(int client_fd) {
     if (message_size > 0) {
         message_size--; // remove last \n
     }
+
+    // Dictionary adjustment
+    current_client_info->msg_size = message_size;
+    current_client_info->stage = RDWR_LOOP;
+
     // send message size
     send_message_size(client_fd, MESSAGE_SIZE_DIGITS, message_size);
     size_t total_files = vector_size(file_names);
@@ -398,13 +557,23 @@ int LIST_request(int client_fd) {
             status = EXIT_FAILURE;
             break;
         }
+        // Dictionary: update bytes processed
+        current_client_info->bytes_processed += bytes_sent;
     }
+    // Update dictionary
+    current_client_info->stage = DONE;
     // manage memory
     vector_destroy(file_names);
     return status;
 }
 
 int GET_request(int client_fd, char *filename) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = GET;
+    current_client_info->stage = OTHER;
+
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
@@ -433,6 +602,10 @@ int GET_request(int client_fd, char *filename) {
     if (send_message_size(client_fd, MESSAGE_SIZE_DIGITS, file_size) < 0) {
         return EXIT_FAILURE;
     }
+    // update client filesize
+    current_client_info->msg_size = file_size;
+    current_client_info->stage = RDWR_LOOP;
+
     // Write file contents to socket
     // Stuff i need to read/write the file with
     int status = 0;
@@ -460,7 +633,11 @@ int GET_request(int client_fd, char *filename) {
             break;
         }
         msg_b_wrote += b_wrote;
+        // update dictionary: use += b_wrote or = msg_b_wrote better?
+        current_client_info->bytes_processed = msg_b_wrote;
     }
+    // update dictionary
+    current_client_info->stage = DONE;
     // did not shutdown, done ltr
     // close file
     fclose(file);
@@ -468,6 +645,12 @@ int GET_request(int client_fd, char *filename) {
 }
 
 int PUT_request(int client_fd, char *filename) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = PUT;
+    current_client_info->stage = OTHER;
+
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
@@ -485,8 +668,12 @@ int PUT_request(int client_fd, char *filename) {
         send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
         return EXIT_FAILURE;
     }
-    // fprintf(stderr, "msgsize: %ld\n", msg_size);
-    // Stuff i need to read/write the file with
+    // update client msgsize
+    current_client_info->msg_size = msg_size;
+    current_client_info->stage = RDWR_LOOP;
+
+    // // fprintf(stderr, "msgsize: %ld\n", msg_size);
+    // // Stuff i need to read/write the file with
     int status = 0;
     char file_buffer[BLOCK_SIZE];
     ssize_t file_b_wrote = 0;
@@ -527,9 +714,14 @@ int PUT_request(int client_fd, char *filename) {
             break;
         }
         file_b_wrote += b_wrote;
+        current_client_info->bytes_processed = file_b_wrote;
     }
     // close file
     fclose(file);
+
+    // update client info
+    current_client_info->stage = DONE;
+
     // check file sizes
     // Check too much data
     ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
@@ -559,6 +751,12 @@ int PUT_request(int client_fd, char *filename) {
 }
 
 int DELETE_request(int client_fd, char *filename) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = DELETE;
+    current_client_info->stage = OTHER;
+
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
@@ -577,6 +775,8 @@ int DELETE_request(int client_fd, char *filename) {
         return EXIT_FAILURE;
     }
     send_response(OK, NO_MSG, client_fd);
+    // update client
+    current_client_info->stage = DONE;
     return 0;
 }
 
@@ -590,11 +790,16 @@ int process_client_reponse(int client_fd) {
         perror("process_client_reponse: could not read line.\n");
         return status;
     }
+    // Setup dictionary info and add to the dictionary
+    client_info *current_client_info = init_empty_client_info();
+    current_client_info->client_fd = client_fd;
+    dictionary_set(client_dictionary, &client_fd, (void *) current_client_info);
+
     // Parse VERB
     char *space_pos = strchr(request, ' ');
     if (!space_pos && strcmp(request, "LIST") == 0) {
         // handle LIST
-        LIST_request(client_fd);
+        status = LIST_request(client_fd);
     } else if (space_pos) {
         // Check GET, PUT or DEL
         // split request line in 2
@@ -607,8 +812,13 @@ int process_client_reponse(int client_fd) {
             print_invalid_response();
             perror("process_client_reponse: MAX_FILENAME_LENGTH exceeded.\n");
             send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            delete_remove_dictionary_entry(client_fd);
             return status;
         }
+        // Dictionary set filename
+        current_client_info->filename_length = strlen(filename);
+        strcpy(current_client_info->filename, filename);
+
         // dispatch
         if (strcmp(verb, "GET") == 0) {
             status = GET_request(client_fd, filename);
@@ -621,6 +831,7 @@ int process_client_reponse(int client_fd) {
             print_invalid_response();
             perror("process_client_reponse: unknown verb.\n");
             send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            delete_remove_dictionary_entry(client_fd);
             return EXIT_FAILURE;
         }
     } else {
@@ -628,7 +839,16 @@ int process_client_reponse(int client_fd) {
         print_invalid_response();
         perror("process_client_reponse: unknown request.\n");
         send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+        delete_remove_dictionary_entry(client_fd);
         return status;
+    }
+    // update status
+    current_client_info->status = status;
+    // Remove only if the request is finished/ has error
+    if (current_client_info->stage == DONE || current_client_info->status != 2) {
+        print_client_info(client_fd);
+        fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+        delete_remove_dictionary_entry(client_fd);
     }
     return status;
 }
@@ -710,6 +930,9 @@ void run_server(char *port) {
     struct sockaddr_storage clientaddr;
     clientaddr.ss_family = AF_INET;
     socklen_t client_addr_size = sizeof(clientaddr);
+
+    // Setup dictionary to store info per client fd
+    client_dictionary = int_to_shallow_dictionary_create();
 
     // main loop to proccess server stuff
     while(1) {
