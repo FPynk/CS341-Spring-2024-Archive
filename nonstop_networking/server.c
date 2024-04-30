@@ -906,13 +906,13 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
                          int n_fds, struct epoll_event event, struct epoll_event *events) {
     int status = 0;
     // cycle and process each event
-    fprintf(stderr, "Processing Epoll\n");
+    // fprintf(stderr, "Processing Epoll\n");
     for (int i = 0; i < n_fds; ++i) {
         if (events[i].data.fd == serverSocket) {
-            fprintf(stderr, "ACCEPTING NEW CLIENT\n");
+            // fprintf(stderr, "ACCEPTING NEW CLIENT\n");
             // serverSocket event; accept
             accept_new_client(clientaddr, client_addr_size, event);
-            fprintf(stderr, "FINISHED ACCEPTING NEW CLIENT\n");
+            // fprintf(stderr, "FINISHED ACCEPTING NEW CLIENT\n");
         } else {
             // set up dictionary with details, resume when you get it again
             // client event, process and close
@@ -920,10 +920,10 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
             
             if (events[i].events & EPOLLIN) {
                 // epoll as expected
-                fprintf(stderr, "PROCESSING EVENT %d CLIENT_FD: %d\n",i , client_fd);
+                // fprintf(stderr, "PROCESSING EVENT %d CLIENT_FD: %d\n",i , client_fd);
                 // ADDED WIP for halfway done stuff
                 if (dictionary_contains(client_dictionary, &client_fd)) {
-                    fprintf(stderr, "Client is halfway %d\n", client_fd);
+                    // fprintf(stderr, "Client is halfway %d\n", client_fd);
                     client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
                     // sanity checking
                     if (current_client_info->stage == RDWR_LOOP && current_client_info->status == 2
@@ -933,7 +933,7 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
                             // Remove only if the request is finished/ has error
                             if (current_client_info->stage == DONE || current_client_info->status != 2) {
                                 print_client_info(client_fd);
-                                fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+                                // fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
                                 delete_remove_dictionary_entry(client_fd);
                             }
                         } else {
@@ -947,7 +947,7 @@ int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_ad
                 }
                 // close client_fd and remove from monitoring
                 if (status != 2) {
-                    fprintf(stderr, "Shutdown, Close, removed client_fd: %d\n", client_fd);
+                    // fprintf(stderr, "Shutdown, Close, removed client_fd: %d\n", client_fd);
                     shutdown(client_fd, SHUT_RDWR);
                     close(client_fd);
                     epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
@@ -1013,7 +1013,7 @@ void run_server(char *port) {
         // wait for events
         // fprintf(stderr, "epoll_wait\n");
         n_fds = epoll_wait(epoll_fd, events, EVENT_LIMIT, -1);
-        fprintf(stderr, "N_FDS EPOLL WAIT: %d\n", n_fds);
+        // fprintf(stderr, "N_FDS EPOLL WAIT: %d\n", n_fds);
         // fprintf(stderr, "n_fds: %d\n", n_fds);
         if (n_fds < 0) {
             perror("run_server: epoll_wait error.\n");

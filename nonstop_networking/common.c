@@ -50,10 +50,10 @@ ssize_t get_message_size(int socket, size_t MESSAGE_SIZE_DIGITS) {
     int32_t size;
     ssize_t read_bytes =
         read_all_from_socket(socket, (char *)&size, MESSAGE_SIZE_DIGITS);
-    fprintf(stderr, "Get_msg_size: bytes read %ld\n", read_bytes);
+    // fprintf(stderr, "Get_msg_size: bytes read %ld\n", read_bytes);
     if (read_bytes == 0 || read_bytes == -1)
         return read_bytes;
-    fprintf(stderr, "Get_msg_size: size %d\n", size);
+    // fprintf(stderr, "Get_msg_size: size %d\n", size);
     return (ssize_t) size;
     // return (ssize_t)ntohl(size); // do not do this
 }
