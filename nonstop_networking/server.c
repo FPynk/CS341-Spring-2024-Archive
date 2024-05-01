@@ -644,10 +644,10 @@ int GET_request_dynamic(int client_fd) {
             // ssize_t b_wrote = write_all_to_socket(client_fd, file_buffer, b_read);
             if (b_wrote < 0) {
                 // error check errno for details
-                perror("GET_dynamic: failed to write msg\n");
+                // perror("GET_dynamic: failed to write msg\n");
                 status = -1;
                 if (errno == EAGAIN) {
-                    perror("EAGAIN, Blocks to write, TRY AGAIN\n");
+                    // perror("EAGAIN, Blocks to write, TRY AGAIN\n");
                     status = 2;
                 }
                 break;
@@ -799,16 +799,21 @@ int PUT_request_dynamic(int client_fd) {
                 else if (cur_read == -1 && errno == EINTR) { continue; }// interruption, retry
                 else { 
                     // error, update status
-                    perror("PUT_dynamic: failed to read msg\n");
+                    // perror("PUT_dynamic: failed to read msg\n");
                     status = -1;
                     if (errno == EAGAIN) {
-                        perror("PUT_dynamic: EAGAIN, nothing to read\n");
+                        // perror("PUT_dynamic: EAGAIN, nothing to read\n");
                         status = 2;
                     }
                     break;
                 }
             }
-
+            if (status == 0 && b_read == 0) {
+                // no bytes read, move on
+                perror("PUT_dynamic: EOF\n");
+                status = 0;
+                break;
+            }
             // if (b_read < 0) {
             //     fprintf(stderr, "b_read: %ld\n", b_read);
             //     // Error reading, means client has not closed yet
