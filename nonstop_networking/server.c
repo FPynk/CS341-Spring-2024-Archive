@@ -213,6 +213,7 @@ client_info *init_empty_client_info() {
     client_fd_info->bytes_processed = 0;
     client_fd_info->stage = UNINITIALISED;
     client_fd_info->status = 0;
+    fprintf(stderr, "Initialised mem addresses msg_size: %p, overall %p\n", &client_fd_info->msg_size ,client_fd_info );
     return client_fd_info;
 }
 
@@ -710,7 +711,8 @@ int PUT_request_dynamic(int client_fd) {
     int status = current_client_info->status;
     
     print_client_info(current_client_info->client_fd);
-
+    fprintf(stderr, "current_client_info addr: %p \n", current_client_info);
+    fprintf(stderr, "current_client_info->msg_size addr: %p \n", &current_client_info->msg_size);
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
@@ -751,9 +753,11 @@ int PUT_request_dynamic(int client_fd) {
         }
         // fprintf(stderr, "msg_size: %ld\n", msg_size);
         // update client info
-        sleep_nano(100); // DO NOT REMOVE, WILL BREAK CODE AND SEGFAULT IDK WHY
-        // fprintf(stderr, "CCI_msg_size: %p\n", &current_client_info->msg_size);
+        // sleep_nano(1); // DO NOT REMOVE, WILL BREAK CODE AND SEGFAULT IDK WHY
+        fprintf(stderr, "CCI_msg_size: %p\n", &current_client_info->msg_size);
+        // fprintf(stderr, "CCI_msg_size value: %ld\n", current_client_info->msg_size);
         current_client_info->msg_size = msg_size;
+        perror("segz idk why this solves a weird race condtion but it does DO NOT REMOVE\n");
         // update client stage
         current_client_info->stage = RDWR_LOOP;
     }
@@ -902,10 +906,12 @@ int process_client_request_dynamic(int client_fd) {
     int status = 0;
     client_info *current_client_info = NULL;
     if (dictionary_contains(client_dictionary, &client_fd)) {
+        fprintf(stderr, "ALREADY CONTAINS %d\n", client_fd);
         current_client_info = dictionary_get(client_dictionary, &client_fd);
     } else {
         // new entry
         // Setup dictionary info and add to the dictionary
+        fprintf(stderr, "CREATED %d\n", client_fd);
         current_client_info = init_empty_client_info();
         current_client_info->client_fd = client_fd;
         dictionary_set(client_dictionary, &client_fd, (void *) current_client_info);
@@ -939,6 +945,7 @@ int process_client_request_dynamic(int client_fd) {
                 print_invalid_response();
                 perror("process_client_reponse: MAX_FILENAME_LENGTH exceeded.\n");
                 send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+                fprintf(stderr, "REMOVED %d\n", client_fd);
                 delete_remove_dictionary_entry(client_fd);
                 return status;
             }
@@ -958,6 +965,7 @@ int process_client_request_dynamic(int client_fd) {
                 print_invalid_response();
                 perror("process_client_reponse: unknown verb. Removed entry\n");
                 send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+                fprintf(stderr, "REMOVED %d\n", client_fd);
                 delete_remove_dictionary_entry(client_fd);
                 return EXIT_FAILURE;
             }
@@ -966,6 +974,7 @@ int process_client_request_dynamic(int client_fd) {
             print_invalid_response();
             perror("process_client_reponse: unknown request. Removed entry\n");
             send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            fprintf(stderr, "REMOVED %d\n", client_fd);
             delete_remove_dictionary_entry(client_fd);
             return status;
         }
@@ -1000,6 +1009,7 @@ int process_client_request_dynamic(int client_fd) {
     if (current_client_info->stage == DONE || current_client_info->status != 2) {
         print_client_info(client_fd);
         // fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+        fprintf(stderr, "REMOVED %d\n", client_fd);
         delete_remove_dictionary_entry(client_fd);
     }
     return status;
