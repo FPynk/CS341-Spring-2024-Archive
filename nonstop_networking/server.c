@@ -701,119 +701,6 @@ int GET_request(int client_fd, char *filename) {
     return status;
 }
 
-int PUT_request(int client_fd, char *filename) {
-    // Grab dictionary entry, shallow copy is reference
-    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
-    // Set Verb type and stage
-    current_client_info->verb_ = PUT;
-    current_client_info->stage = OTHER;
-
-    // contruct path to file
-    char path[strlen(dir) + strlen(filename) + 2];
-    snprintf(path, sizeof(path), "%s/%s", dir, filename);
-    fprintf(stderr, "PUT: %s\n", filename);
-    // open file
-    FILE *file = fopen(path, "w+");
-    if (file == NULL) {
-        perror("PUT_request: failed to open file\n");
-        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
-        return EXIT_FAILURE;
-    }
-    ssize_t msg_size = get_message_size(client_fd, MESSAGE_SIZE_DIGITS);
-    if (msg_size < 0) {
-        perror("PUT_request: failed get size\n");
-        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
-        return EXIT_FAILURE;
-    }
-    // update client msgsize
-    current_client_info->msg_size = msg_size;
-    current_client_info->stage = RDWR_LOOP;
-
-    // // fprintf(stderr, "msgsize: %ld\n", msg_size);
-    // // Stuff i need to read/write the file with
-    int status = 0;
-    char file_buffer[BLOCK_SIZE];
-    ssize_t file_b_wrote = 0;
-    ssize_t b_left_to_write = msg_size;
-    // int retry_count = 0;
-    // Read message in chunks, write to file
-    while (file_b_wrote < msg_size) {
-        b_left_to_write = msg_size - file_b_wrote;
-        // read/ write in blocks
-        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
-        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
-        // read from socket
-        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
-        if (b_read < 0) {
-            fprintf(stderr, "b_read: %ld\n", b_read);
-            // Error reading, means client has not closed yet
-            perror("PUT_request: failed to read msg\n");
-            // status = -1;
-            if (errno == EAGAIN) {
-                // try to rerun PUT
-                perror("PUT_request: EAGAIN, nothing to read\n");
-                status = 2; // uncomment when can handle this status type, if not will break
-                // continue;
-                break;
-                // return status;
-            }
-            break;
-        } else if (b_read == 0) {
-            // Client closed writing on its end, cannot expect more bytes
-            // break check for sizes
-            fprintf(stderr, "b_read: %ld\n", b_read);
-            break;
-        }
-        // write to file
-        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
-        if (b_wrote < b_read) { // changed to b_read
-            perror("PUT_request: failed to write to file\n");
-            status = -1;
-            break;
-        }
-        file_b_wrote += b_wrote;
-        current_client_info->bytes_processed = file_b_wrote;
-    }
-    // close file
-    fclose(file);
-
-    // Handle no data in socket
-    if (status == 2) {
-        perror("PUT_request: 2 no data in socket, return later\n");
-        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
-        return status;
-    }
-    // update client info
-    current_client_info->stage = DONE;
-
-    // check file sizes
-    // Check too much data
-    ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
-    fprintf(stderr, "Try to read more bytes: %ld\n", b_read);
-    if (b_read > 0) {
-        perror("PUT_request: too much data\n");
-        status = -1;
-    }
-    fprintf(stderr, "bytes written: %ld\n", file_b_wrote);
-    // Check too little data
-    if (file_b_wrote < msg_size) {
-        perror("PUT_request: too little data\n");
-        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
-        status = -1;
-    }
-    // send ERROR response if status -1
-    if (status == -1) {
-        perror("PUT_request: status -1\n");
-        send_response(ERROR, BAD_FILE_SIZE, client_fd);
-        return EXIT_FAILURE;
-    }
-    // Send OK response: additional check added to only send if all bytes written
-    if (file_b_wrote == msg_size && send_response(OK, NO_MSG, client_fd) < 0) {
-        return EXIT_FAILURE;
-    }
-    return status;
-}
-
 int DELETE_request(int client_fd, char *filename) {
     // Grab dictionary entry, shallow copy is reference
     client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
@@ -1012,7 +899,7 @@ int PUT_request_dynamic(int client_fd) {
 }
 
 int process_client_request_dynamic(int client_fd) {
-    fprintf(stderr, "PCRequestD RUNNING\n");
+    fprintf(stderr, "process_client_request_dynamic RUNNING\n");
     // check dictionary
     int status = 0;
     client_info *current_client_info = NULL;
@@ -1071,7 +958,7 @@ int process_client_request_dynamic(int client_fd) {
             } else {
                 status = -1;
                 print_invalid_response();
-                perror("process_client_reponse: unknown verb.\n");
+                perror("process_client_reponse: unknown verb. Removed entry\n");
                 send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
                 delete_remove_dictionary_entry(client_fd);
                 return EXIT_FAILURE;
@@ -1079,7 +966,7 @@ int process_client_request_dynamic(int client_fd) {
         } else {
             status = -1;
             print_invalid_response();
-            perror("process_client_reponse: unknown request.\n");
+            perror("process_client_reponse: unknown request. Removed entry\n");
             send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
             delete_remove_dictionary_entry(client_fd);
             return status;
@@ -1120,82 +1007,9 @@ int process_client_request_dynamic(int client_fd) {
     return status;
 }
 
-int process_client_reponse(int client_fd) {
-    // Get header
-    int status = 0;
-    char request[HEADER_SIZE];
-    if (read_line(client_fd, request, sizeof(request)) < 0) {
-        status = -1;
-        print_invalid_response();
-        perror("process_client_reponse: could not read line.\n");
-        return status;
-    }
-    // Setup dictionary info and add to the dictionary
-    client_info *current_client_info = init_empty_client_info();
-    current_client_info->client_fd = client_fd;
-    dictionary_set(client_dictionary, &client_fd, (void *) current_client_info);
-
-    // Parse VERB
-    char *space_pos = strchr(request, ' ');
-    if (!space_pos && strcmp(request, "LIST") == 0) {
-        // handle LIST
-        status = LIST_request(client_fd);
-    } else if (space_pos) {
-        // Check GET, PUT or DEL
-        // split request line in 2
-        *space_pos = '\0';
-        char *filename = space_pos + 1;
-        char *verb = request;
-        // check filename length
-        if (strlen(filename) > MAX_FILENAME_LENGTH) {
-            status = -1;
-            print_invalid_response();
-            perror("process_client_reponse: MAX_FILENAME_LENGTH exceeded.\n");
-            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
-            delete_remove_dictionary_entry(client_fd);
-            return status;
-        }
-        // Dictionary set filename
-        current_client_info->filename_length = strlen(filename);
-        strcpy(current_client_info->filename, filename);
-
-        // dispatch
-        if (strcmp(verb, "GET") == 0) {
-            status = GET_request(client_fd, filename);
-        } else if (strcmp(verb, "PUT") == 0) {
-            status = PUT_request(client_fd, filename);
-        } else if (strcmp(verb, "DELETE") == 0) {
-            status = DELETE_request(client_fd, filename);
-        } else {
-            status = -1;
-            print_invalid_response();
-            perror("process_client_reponse: unknown verb.\n");
-            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
-            delete_remove_dictionary_entry(client_fd);
-            return EXIT_FAILURE;
-        }
-    } else {
-        status = -1;
-        print_invalid_response();
-        perror("process_client_reponse: unknown request.\n");
-        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
-        delete_remove_dictionary_entry(client_fd);
-        return status;
-    }
-    // update status
-    current_client_info->status = status;
-    // Remove only if the request is finished/ has error
-    if (current_client_info->stage == DONE || current_client_info->status != 2) {
-        print_client_info(client_fd);
-        fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
-        delete_remove_dictionary_entry(client_fd);
-    }
-    return status;
-}
-
 int process_epoll_events_dynamic(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
                          int n_fds, struct epoll_event event, struct epoll_event *events) {
-    fprintf(stderr, "PEpollVD RUNNING\n");
+    fprintf(stderr, "process_epoll_events_dynamic RUNNING\n");
     int status = 0;
     // cycle and process each event
     // fprintf(stderr, "Processing Epoll\n");
@@ -1227,75 +1041,6 @@ int process_epoll_events_dynamic(struct sockaddr_storage clientaddr, socklen_t c
                     event.events = EPOLLIN;         // monitor for input events (reading)
                     event.data.fd = client_fd;
                     epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &event);
-                }
-            } else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR) {
-                // Epoll fd error
-                perror("run_server: EPOLLHUP || EPOLERR.\n");
-                close(client_fd);
-                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
-            }
-        }
-    }
-    return status;
-}
-
-int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
-                         int n_fds, struct epoll_event event, struct epoll_event *events) {
-    int status = 0;
-    // cycle and process each event
-    // fprintf(stderr, "Processing Epoll\n");
-    for (int i = 0; i < n_fds; ++i) {
-        if (events[i].data.fd == serverSocket) {
-            // fprintf(stderr, "ACCEPTING NEW CLIENT\n");
-            // serverSocket event; accept
-            accept_new_client(clientaddr, client_addr_size, event);
-            // fprintf(stderr, "FINISHED ACCEPTING NEW CLIENT\n");
-        } else {
-            // set up dictionary with details, resume when you get it again
-            // client event, process and close
-            int client_fd = events[i].data.fd;
-            
-            if (events[i].events & EPOLLIN) {
-                // epoll as expected
-                // fprintf(stderr, "PROCESSING EVENT %d CLIENT_FD: %d\n",i , client_fd);
-                // ADDED WIP for halfway done stuff
-                if (dictionary_contains(client_dictionary, &client_fd)) {
-                    // fprintf(stderr, "Client is halfway %d\n", client_fd);
-                    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
-                    // sanity checking
-                    if (current_client_info->stage == RDWR_LOOP && current_client_info->status == 2
-                        && current_client_info->verb_ == PUT) {
-                            status = put_read_socket_write_file(current_client_info);
-                            current_client_info->status = status;
-                            // Remove only if the request is finished/ has error
-                            if (current_client_info->stage == DONE || current_client_info->status != 2) {
-                                print_client_info(client_fd);
-                                // fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
-                                delete_remove_dictionary_entry(client_fd);
-                            }
-                        } else {
-                            perror("YOU DONE FUCKED UP BOI\n");
-                            print_client_info(client_fd);
-                            // help me
-                        }
-                } else {
-                    // first time
-                    status = process_client_reponse(client_fd);
-                }
-                // close client_fd and remove from monitoring
-                if (status != 2) {
-                    // fprintf(stderr, "Shutdown, Close, removed client_fd: %d\n", client_fd);
-                    shutdown(client_fd, SHUT_RDWR);
-                    close(client_fd);
-                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
-                } else {
-                    // Change monitoring type to get more updates
-                    //  this will break too much data
-                    struct epoll_event client_event;
-                    memset(&client_event, 0, sizeof(client_event));
-                    client_event.events = EPOLLIN;         // monitor for input events (reading)
-                    client_event.data.fd = client_fd;
-                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &client_event);
                 }
             } else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR) {
                 // Epoll fd error
@@ -1385,4 +1130,262 @@ int main(int argc, char **argv) {
     // cleanup mem?
 
     return EXIT_SUCCESS;
+}
+
+// ----------------------------------------------------------------------------------------
+// DEPRECATED FUNCTIONS
+// ----------------------------------------------------------------------------------------
+int PUT_request(int client_fd, char *filename) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = PUT;
+    current_client_info->stage = OTHER;
+
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    fprintf(stderr, "PUT: %s\n", filename);
+    // open file
+    FILE *file = fopen(path, "w+");
+    if (file == NULL) {
+        perror("PUT_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    ssize_t msg_size = get_message_size(client_fd, MESSAGE_SIZE_DIGITS);
+    if (msg_size < 0) {
+        perror("PUT_request: failed get size\n");
+        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+        return EXIT_FAILURE;
+    }
+    // update client msgsize
+    current_client_info->msg_size = msg_size;
+    current_client_info->stage = RDWR_LOOP;
+
+    // // fprintf(stderr, "msgsize: %ld\n", msg_size);
+    // // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = 0;
+    ssize_t b_left_to_write = msg_size;
+    // int retry_count = 0;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            // Error reading, means client has not closed yet
+            perror("PUT_request: failed to read msg\n");
+            // status = -1;
+            if (errno == EAGAIN) {
+                // try to rerun PUT
+                perror("PUT_request: EAGAIN, nothing to read\n");
+                status = 2; // uncomment when can handle this status type, if not will break
+                // continue;
+                break;
+                // return status;
+            }
+            break;
+        } else if (b_read == 0) {
+            // Client closed writing on its end, cannot expect more bytes
+            // break check for sizes
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_read) { // changed to b_read
+            perror("PUT_request: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+        current_client_info->bytes_processed = file_b_wrote;
+    }
+    // close file
+    fclose(file);
+
+    // Handle no data in socket
+    if (status == 2) {
+        perror("PUT_request: 2 no data in socket, return later\n");
+        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
+        return status;
+    }
+    // update client info
+    current_client_info->stage = DONE;
+
+    // check file sizes
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
+    fprintf(stderr, "Try to read more bytes: %ld\n", b_read);
+    if (b_read > 0) {
+        perror("PUT_request: too much data\n");
+        status = -1;
+    }
+    fprintf(stderr, "bytes written: %ld\n", file_b_wrote);
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        perror("PUT_request: too little data\n");
+        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
+        status = -1;
+    }
+    // send ERROR response if status -1
+    if (status == -1) {
+        perror("PUT_request: status -1\n");
+        send_response(ERROR, BAD_FILE_SIZE, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Send OK response: additional check added to only send if all bytes written
+    if (file_b_wrote == msg_size && send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
+    return status;
+}
+
+int process_client_reponse(int client_fd) {
+    // Get header
+    int status = 0;
+    char request[HEADER_SIZE];
+    if (read_line(client_fd, request, sizeof(request)) < 0) {
+        status = -1;
+        print_invalid_response();
+        perror("process_client_reponse: could not read line.\n");
+        return status;
+    }
+    // Setup dictionary info and add to the dictionary
+    client_info *current_client_info = init_empty_client_info();
+    current_client_info->client_fd = client_fd;
+    dictionary_set(client_dictionary, &client_fd, (void *) current_client_info);
+
+    // Parse VERB
+    char *space_pos = strchr(request, ' ');
+    if (!space_pos && strcmp(request, "LIST") == 0) {
+        // handle LIST
+        status = LIST_request(client_fd);
+    } else if (space_pos) {
+        // Check GET, PUT or DEL
+        // split request line in 2
+        *space_pos = '\0';
+        char *filename = space_pos + 1;
+        char *verb = request;
+        // check filename length
+        if (strlen(filename) > MAX_FILENAME_LENGTH) {
+            status = -1;
+            print_invalid_response();
+            perror("process_client_reponse: MAX_FILENAME_LENGTH exceeded.\n");
+            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            delete_remove_dictionary_entry(client_fd);
+            return status;
+        }
+        // Dictionary set filename
+        current_client_info->filename_length = strlen(filename);
+        strcpy(current_client_info->filename, filename);
+
+        // dispatch
+        if (strcmp(verb, "GET") == 0) {
+            status = GET_request(client_fd, filename);
+        } else if (strcmp(verb, "PUT") == 0) {
+            status = PUT_request(client_fd, filename);
+        } else if (strcmp(verb, "DELETE") == 0) {
+            status = DELETE_request(client_fd, filename);
+        } else {
+            status = -1;
+            print_invalid_response();
+            perror("process_client_reponse: unknown verb.\n");
+            send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+            delete_remove_dictionary_entry(client_fd);
+            return EXIT_FAILURE;
+        }
+    } else {
+        status = -1;
+        print_invalid_response();
+        perror("process_client_reponse: unknown request.\n");
+        send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
+        delete_remove_dictionary_entry(client_fd);
+        return status;
+    }
+    // update status
+    current_client_info->status = status;
+    // Remove only if the request is finished/ has error
+    if (current_client_info->stage == DONE || current_client_info->status != 2) {
+        print_client_info(client_fd);
+        fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+        delete_remove_dictionary_entry(client_fd);
+    }
+    return status;
+}
+
+int process_epoll_events(struct sockaddr_storage clientaddr, socklen_t client_addr_size,
+                         int n_fds, struct epoll_event event, struct epoll_event *events) {
+    int status = 0;
+    // cycle and process each event
+    // fprintf(stderr, "Processing Epoll\n");
+    for (int i = 0; i < n_fds; ++i) {
+        if (events[i].data.fd == serverSocket) {
+            // fprintf(stderr, "ACCEPTING NEW CLIENT\n");
+            // serverSocket event; accept
+            accept_new_client(clientaddr, client_addr_size, event);
+            // fprintf(stderr, "FINISHED ACCEPTING NEW CLIENT\n");
+        } else {
+            // set up dictionary with details, resume when you get it again
+            // client event, process and close
+            int client_fd = events[i].data.fd;
+            
+            if (events[i].events & EPOLLIN) {
+                // epoll as expected
+                // fprintf(stderr, "PROCESSING EVENT %d CLIENT_FD: %d\n",i , client_fd);
+                // ADDED WIP for halfway done stuff
+                if (dictionary_contains(client_dictionary, &client_fd)) {
+                    // fprintf(stderr, "Client is halfway %d\n", client_fd);
+                    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+                    // sanity checking
+                    if (current_client_info->stage == RDWR_LOOP && current_client_info->status == 2
+                        && current_client_info->verb_ == PUT) {
+                            status = put_read_socket_write_file(current_client_info);
+                            current_client_info->status = status;
+                            // Remove only if the request is finished/ has error
+                            if (current_client_info->stage == DONE || current_client_info->status != 2) {
+                                print_client_info(client_fd);
+                                // fprintf(stderr, "Clinet_fd: %d removed from dictionary\n", client_fd);
+                                delete_remove_dictionary_entry(client_fd);
+                            }
+                        } else {
+                            perror("YOU DONE FUCKED UP BOI\n");
+                            print_client_info(client_fd);
+                            // help me
+                        }
+                } else {
+                    // first time
+                    status = process_client_reponse(client_fd);
+                }
+                // close client_fd and remove from monitoring
+                if (status != 2) {
+                    // fprintf(stderr, "Shutdown, Close, removed client_fd: %d\n", client_fd);
+                    shutdown(client_fd, SHUT_RDWR);
+                    close(client_fd);
+                    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+                } else {
+                    // Change monitoring type to get more updates
+                    //  this will break too much data
+                    struct epoll_event client_event;
+                    memset(&client_event, 0, sizeof(client_event));
+                    client_event.events = EPOLLIN;         // monitor for input events (reading)
+                    client_event.data.fd = client_fd;
+                    epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_fd, &client_event);
+                }
+            } else if (events[i].events & EPOLLHUP || events[i].events & EPOLLERR) {
+                // Epoll fd error
+                perror("run_server: EPOLLHUP || EPOLERR.\n");
+                close(client_fd);
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, client_fd, NULL);
+            }
+        }
+    }
+    return status;
 }

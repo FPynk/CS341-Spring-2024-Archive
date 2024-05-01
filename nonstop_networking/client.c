@@ -542,8 +542,8 @@ int BFS_request(const char *remote, const char *local) {
         return -1;
     }
     // send file size to server
-    // SENDS WRONG SIZE TO SERVER
-    ssize_t bad_file_size = file_size - 1;
+    // SENDS WRONG SIZE TO SERVER: if -1 should be too much data if +1 too little
+    ssize_t bad_file_size = file_size + 1;
     fprintf(stderr, "BFS filesize is, sent:%ld, %ld\n", file_size, bad_file_size);
     ssize_t bytes_wrote_size = send_message_size(serverSocket, MESSAGE_SIZE_DIGITS, bad_file_size);
     if (bytes_wrote_size < 0) {
