@@ -18,7 +18,9 @@
         "stdbool.h": "c",
         "fcntl.h": "c",
         "common.h": "c",
-        "functional": "c"
+        "functional": "c",
+        "chrono": "c",
+        "algorithm": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

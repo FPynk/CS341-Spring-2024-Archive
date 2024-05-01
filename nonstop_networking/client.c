@@ -250,12 +250,17 @@ int GET_request(const char *remote, const char *local) {
             perror("GET_request: failed to read msg\n");
             status = -1;
             break;
+        } else if (b_read == 0) {
+            // EOF
+            perror("GET_request: EOF\n");
+            break;
         }
         // write to file
         ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
         // below technically wrong, should be b_read and break if b_read = 0
         // Since its working i dont care
-        if (b_wrote < b_to_WR) { // cannot be b_read
+        if (b_wrote < b_read) { // cannot be b_read
+            fprintf(stderr, "B_read: %ld b_wrote: %ld\n", b_read, b_wrote);
             perror("GET_request: failed to write to file\n");
             status = -1;
             break;
@@ -272,6 +277,7 @@ int GET_request(const char *remote, const char *local) {
     // Check too little data
     if (file_b_wrote < msg_size) {
         print_too_little_data();
+        fprintf(stderr, "file_b_wrote: %ld, msg_size: %ld\n", file_b_wrote, msg_size);
         perror("GET_request: too little data\n");
         status = -1;
     }

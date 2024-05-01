@@ -77,10 +77,11 @@ typedef enum {
     PARSE, // 2
     START, // 3
     FILE_CHECK, // 4
-    MSG_SIZE_RDWR, // 5
-    RDWR_LOOP, // 6
-    FINAL_CHECKS, // 7
-    DONE, // 8
+    RESPONSE, //5
+    MSG_SIZE_RDWR, // 6
+    RDWR_LOOP, // 7
+    FINAL_CHECKS, // 8
+    DONE, // 9
 } Stage;
 
 // client_info struct
@@ -114,7 +115,9 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
                      struct epoll_event event);
 int put_read_socket_write_file(client_info *current_client_info);
 int LIST_request(int client_fd);
+int GET_request_dynamic(int client_fd);
 int GET_request(int client_fd, char *filename);
+int PUT_request_dynamic(int client_fd);
 int PUT_request(int client_fd, char *filename);
 int DELETE_request(int client_fd, char *filename);
 int process_client_request_dynamic(int client_fd);
@@ -440,116 +443,6 @@ int accept_new_client(struct sockaddr_storage clientaddr, socklen_t client_addr_
     return result;
 }
 
-// modularised put section RDWR to be dynamic
-// returns status
-int put_read_socket_write_file(client_info *current_client_info) { 
-    // setup of variables
-    ssize_t file_bytes_written = current_client_info->bytes_processed;
-    ssize_t msg_size = current_client_info->msg_size;
-    int client_fd = current_client_info->client_fd;
-    // fprintf(stderr, "msgsize: %ld\n", msg_size);
-    // open file
-    char *filename = current_client_info->filename;
-    // contruct path to file
-    char path[strlen(dir) + strlen(filename) + 2];
-    snprintf(path, sizeof(path), "%s/%s", dir, filename);
-    fprintf(stderr, "PUT: %s\n", filename);
-    // open file
-    FILE *file = fopen(path, "a"); // make sure that we dont delete the file
-    if (file == NULL) {
-        perror("PRSWF: failed to open file\n");
-        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
-        return EXIT_FAILURE;
-    }
-    // Set the starting write position using fseek
-    if (fseek(file, file_bytes_written, SEEK_SET) != 0) {
-        perror("PRSWF: Failed to seek to required file position");
-        fclose(file);
-        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
-        return EXIT_FAILURE;
-    }
-    fprintf(stderr, "Starting off at byte %ld\n", file_bytes_written);
-    // Stuff i need to read/write the file with
-    int status = 0;
-    char file_buffer[BLOCK_SIZE];
-    ssize_t file_b_wrote = file_bytes_written;
-    ssize_t b_left_to_write = msg_size - file_b_wrote;
-    // int retry_count = 0;
-    // Read message in chunks, write to file
-    while (file_b_wrote < msg_size) {
-        b_left_to_write = msg_size - file_b_wrote;
-        // read/ write in blocks
-        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
-        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
-        // read from socket
-        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
-        if (b_read < 0) {
-            fprintf(stderr, "b_read: %ld\n", b_read);
-            // Error reading, means client has not closed yet
-            perror("PRSWF: failed to read msg\n");
-            // status = -1;
-            if (errno == EAGAIN) {
-                // try to rerun PUT
-                perror("PRSWF: EAGAIN, nothing to read\n");
-                status = 2; // uncomment when can handle this status type, if not will break
-                // continue;
-                // return status;
-            }
-            break;
-        } else if (b_read == 0) {
-            // Client closed writing on its end, cannot expect more bytes
-            // break check for sizes
-            fprintf(stderr, "b_read: %ld\n", b_read);
-            break;
-        }
-        // write to file
-        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
-        if (b_wrote < b_read) { // changed to b_read
-            perror("PRSWF: failed to write to file\n");
-            status = -1;
-            break;
-        }
-        file_b_wrote += b_wrote;
-        current_client_info->bytes_processed = file_b_wrote;
-    }
-    fclose(file);
-    // Handle no data in socket
-    if (status == 2) {
-        perror("PRSWF: 2 no data in socket, return later\n");
-        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
-        return status;
-    }
-    // update client info
-    current_client_info->stage = DONE;
-
-    // check file sizes
-    // Check too much data
-    ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
-    fprintf(stderr, "Try to read more bytes: %ld\n", b_read);
-    if (b_read > 0) {
-        perror("PRSWF: too much data\n");
-        status = -1;
-    }
-    fprintf(stderr, "bytes written: %ld\n", file_b_wrote);
-    // Check too little data
-    if (file_b_wrote < msg_size) {
-        perror("PRSWF: too little data\n");
-        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
-        status = -1;
-    }
-    // send ERROR response if status -1
-    if (status == -1) {
-        perror("PRSWF: status -1\n");
-        send_response(ERROR, BAD_FILE_SIZE, client_fd);
-        return EXIT_FAILURE;
-    }
-    // Send OK response: additional check added to only send if all bytes written
-    if (file_b_wrote == msg_size && send_response(OK, NO_MSG, client_fd) < 0) {
-        return EXIT_FAILURE;
-    }
-    return status;
-}
-
 int LIST_request(int client_fd) {
     // Grab dictionary entry, shallow copy is reference
     client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
@@ -624,80 +517,158 @@ int LIST_request(int client_fd) {
     return status;
 }
 
-int GET_request(int client_fd, char *filename) {
+int GET_request_dynamic(int client_fd) {
     // Grab dictionary entry, shallow copy is reference
     client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
-    // Set Verb type and stage
-    current_client_info->verb_ = GET;
-    current_client_info->stage = OTHER;
+    char *filename = current_client_info->filename;
+    int status = current_client_info->status;
 
     // contruct path to file
     char path[strlen(dir) + strlen(filename) + 2];
     snprintf(path, sizeof(path), "%s/%s", dir, filename);
-    // get file stats, size
-    struct stat file_stat;
-    if (stat(path, &file_stat) != 0) {
-        perror("GET_request: failed to get file stat.\n");
-        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
-        return EXIT_FAILURE;
-    }
-    ssize_t file_size = file_stat.st_size;
-    // open file
-    FILE *file = fopen(path, "r");
-    if (file == NULL) {
-        perror("GET_request: failed to open file\n");
-        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
-        return EXIT_FAILURE;
+
+    FILE *file = NULL;
+    if (current_client_info->stage == START || current_client_info->stage == FILE_CHECK) {
+        // get file stats, size
+        struct stat file_stat;
+        if (stat(path, &file_stat) != 0) {
+            perror("GET_dynamic: failed to get file stat.\n");
+            send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+            return EXIT_FAILURE;
+        }
+        ssize_t file_size = file_stat.st_size;
+        // update client filesize
+        current_client_info->msg_size = file_size;
+        // open file
+        file = fopen(path, "r");
+        if (file == NULL) {
+            perror("GET_dynamic: failed to open file\n");
+            send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+            return EXIT_FAILURE;
+        }
+        // update stage
+        current_client_info->stage = RESPONSE;
     }
     // send response
     // RESPONSE\n
     // [Error Message]\n
     // [File size][Binary Data]
-    if (send_response(OK, NO_MSG, client_fd) < 0) {
-        return EXIT_FAILURE;
+    // The nesting here is intense
+    if (current_client_info->stage == RESPONSE) {
+        int result = send_response(OK, NO_MSG, client_fd);
+        if (result < 0 && errno == EAGAIN) {
+            perror("GET_dynamic, send response failed TRY AGAIN\n");
+            return 2; // try again
+        } else if (result < 0) {
+            perror("GET_dynamic, send response failed EXIT\n");
+            return EXIT_FAILURE; // failure
+        }
+        // success
+        current_client_info->stage = MSG_SIZE_RDWR;
     }
-    if (send_message_size(client_fd, MESSAGE_SIZE_DIGITS, file_size) < 0) {
-        return EXIT_FAILURE;
+    if (current_client_info->stage == MSG_SIZE_RDWR) {
+        int result = send_message_size(client_fd, MESSAGE_SIZE_DIGITS, current_client_info->msg_size);
+        if (result < 0 && errno == EAGAIN) {
+            perror("GET_dynamic, send response failed TRY AGAIN\n");
+            return 2; // try again
+        } else if (result < 0) {
+            perror("GET_dynamic, send msg_size failed EXIT\n");
+            return EXIT_FAILURE; // failure
+        }
+        current_client_info->stage = RDWR_LOOP;
     }
-    // update client filesize
-    current_client_info->msg_size = file_size;
-    current_client_info->stage = RDWR_LOOP;
 
-    // Write file contents to socket
-    // Stuff i need to read/write the file with
-    int status = 0;
-    char file_buffer[BLOCK_SIZE];
-    ssize_t msg_b_wrote = 0;
-    ssize_t b_left_to_write = file_size;
-    // Read message in chunks, write to file
-    while (msg_b_wrote < file_size) {
-        b_left_to_write = file_size - msg_b_wrote;
-        // read/ write in blocks
-        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
-        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
-        // read from from file
-        ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
-        if (b_read < b_to_WR) {
-            perror("GET_request: failed to read from file\n");
-            status = -1;
-            break;
+    if (current_client_info->stage == RDWR_LOOP) {
+        ssize_t file_size = current_client_info->msg_size;
+        // open file if null in append: redoing sending
+        if (!file) {
+            fprintf(stderr, "Opening file in READ\n");
+            // open file in append, since file already created
+            file = fopen(path, "r");
+            if (file == NULL) {
+                perror("GET_dynamic: failed to open file\n");
+                send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+                return EXIT_FAILURE;
+            }
+            // offset correctly
+            if (fseek(file, current_client_info->bytes_processed, SEEK_SET) != 0) {
+                perror("GET_dynamic: Error seeking\n");
+                fclose(file);
+                return 1;
+            }
         }
-        // write to socket
-        ssize_t b_wrote = write_all_to_socket(client_fd, file_buffer, b_read);
-        if (b_wrote < 0) {
-            perror("GET_request: failed to write msg\n");
-            status = -1;
-            break;
+
+        // reset status to 0
+        status = 0;
+
+        // Write file contents to socket
+        // Stuff i need to read/write the file with
+        char file_buffer[BLOCK_SIZE];
+        ssize_t msg_b_wrote = current_client_info->bytes_processed;
+        ssize_t b_left_to_write = file_size - msg_b_wrote;
+        // Read message in chunks, write to file
+        while (msg_b_wrote < file_size) {
+            b_left_to_write = file_size - msg_b_wrote;
+            // read/ write in blocks
+            ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+            // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+            // read from from file
+            ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
+            if (b_read < b_to_WR) {
+                perror("GET_dynamic: failed to read from file\n");
+                status = -1;
+                break;
+            }
+            // BEWARE SPHAGET: b_wrote is more like status now tbh
+            // write to socket
+            // b_write for this while loop, b wrote for outer while loop
+            ssize_t b_write = 0;
+            ssize_t b_wrote = 0;
+            while (b_write < (ssize_t) b_read) {
+                ssize_t cur_write = write(client_fd, file_buffer + b_write, b_read - b_write);
+                if (cur_write == 0) { break; } // done
+                else if (cur_write > 0) { 
+                    // increment
+                    b_write += cur_write; 
+                    b_wrote = b_write;
+                }
+                else if (cur_write == -1 && errno == EINTR) { continue; } //interrupt, retry
+                else { 
+                    b_wrote = -1;
+                    break; 
+                } // error, could be EAGAIN, still need update write
+            }
+            msg_b_wrote += b_write; // update regardless
+            // update dictionary
+            current_client_info->bytes_processed = msg_b_wrote;
+            // ssize_t b_wrote = write_all_to_socket(client_fd, file_buffer, b_read);
+            if (b_wrote < 0) {
+                // error check errno for details
+                perror("GET_dynamic: failed to write msg\n");
+                status = -1;
+                if (errno == EAGAIN) {
+                    perror("EAGAIN, Blocks to write, TRY AGAIN\n");
+                    status = 2;
+                }
+                break;
+            } else if (b_wrote == 0) {
+                // connection closed, need to check data
+                perror("GET_dynamic: EOF/Connection closed\n");
+                status = 0;
+                break;
+            }
         }
-        msg_b_wrote += b_wrote;
-        // update dictionary: use += b_wrote or = msg_b_wrote better?
-        current_client_info->bytes_processed = msg_b_wrote;
+        // update dictionary
+        if (status == 0) {
+            // success, status == 0
+            current_client_info->stage = DONE;
+        }
     }
-    // update dictionary
-    current_client_info->stage = DONE;
     // did not shutdown, done ltr
     // close file
-    fclose(file);
+    if (file) {
+        fclose(file);
+    }
     return status;
 }
 
@@ -759,7 +730,7 @@ int PUT_request_dynamic(int client_fd) {
         // update stage to next one
         current_client_info->stage = MSG_SIZE_RDWR;
     }
-    
+    // might need to deocmpose get_message_size for more control
     if (current_client_info->stage == MSG_SIZE_RDWR) {
         print_client_info(current_client_info->client_fd);
         ssize_t msg_size = get_message_size(client_fd, MESSAGE_SIZE_DIGITS);
@@ -818,27 +789,48 @@ int PUT_request_dynamic(int client_fd) {
             ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
             // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
             // read from socket
-            ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
-            if (b_read < 0) {
-                fprintf(stderr, "b_read: %ld\n", b_read);
-                // Error reading, means client has not closed yet
-                perror("PUT_dynamic: failed to read msg\n");
-                // status = -1;
-                if (errno == EAGAIN) {
-                    // try to rerun PUT
-                    perror("PUT_dynamic: EAGAIN, nothing to read\n");
-                    status = 2; // uncomment when can handle this status type, if not will break
-                    // continue;
+            // WIP
+            // ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
+            ssize_t b_read = 0;
+            while (b_read < (ssize_t) b_to_WR) {
+                ssize_t cur_read = read(client_fd, file_buffer + b_read, b_to_WR - b_read);
+                if (cur_read == 0) { break; } // Done reading
+                else if (cur_read > 0) { b_read += cur_read; } // increment bytes read
+                else if (cur_read == -1 && errno == EINTR) { continue; }// interruption, retry
+                else { 
+                    // error, update status
+                    perror("PUT_dynamic: failed to read msg\n");
+                    status = -1;
+                    if (errno == EAGAIN) {
+                        perror("PUT_dynamic: EAGAIN, nothing to read\n");
+                        status = 2;
+                    }
                     break;
-                    // return status;
                 }
-                break;
-            } else if (b_read == 0) {
-                // Client closed writing on its end, cannot expect more bytes
-                // break check for sizes
-                fprintf(stderr, "b_read: %ld\n", b_read);
-                break;
             }
+
+            // if (b_read < 0) {
+            //     fprintf(stderr, "b_read: %ld\n", b_read);
+            //     // Error reading, means client has not closed yet
+            //     perror("PUT_dynamic: failed to read msg\n");
+            //     status = -1; // TODO CHECK IF THIS BREAKS ANYTHING, JUST ADDED
+            //     if (errno == EAGAIN) {
+            //         // try to rerun PUT
+            //         perror("PUT_dynamic: EAGAIN, nothing to read\n");
+            //         status = 2; // uncomment when can handle this status type, if not will break
+            //         // continue;
+            //         // break;
+            //         // return status;
+            //     }
+            //     break;
+            // } else if (b_read == 0) {
+            //     // Client closed writing on its end, cannot expect more bytes
+            //     // break check for sizes
+            //     fprintf(stderr, "b_read: %ld\n", b_read);
+            //     status = 0; // CHECK FOR BREAKING
+            //     break;
+            // }
+
             // write to file
             ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
             if (b_wrote < b_read) { // changed to b_read
@@ -882,6 +874,7 @@ int PUT_request_dynamic(int client_fd) {
             fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
             status = -1;
         }
+        // MAY NEED TO FURTHER BREAK THIS DOWN, if send response fails for either case
         // send ERROR response if status -1
         if (status == -1) {
             perror("PUT_request: status -1\n");
@@ -982,7 +975,7 @@ int process_client_request_dynamic(int client_fd) {
                 status = PUT_request_dynamic(current_client_info->client_fd);
                 break;
             case GET:
-                status = GET_request(current_client_info->client_fd, current_client_info->filename);
+                status = GET_request_dynamic(current_client_info->client_fd);
                 break;
             case LIST:
                 status = LIST_request(current_client_info->client_fd);
@@ -1135,6 +1128,194 @@ int main(int argc, char **argv) {
 // ----------------------------------------------------------------------------------------
 // DEPRECATED FUNCTIONS
 // ----------------------------------------------------------------------------------------
+// modularised put section RDWR to be dynamic
+// returns status
+int put_read_socket_write_file(client_info *current_client_info) { 
+    // setup of variables
+    ssize_t file_bytes_written = current_client_info->bytes_processed;
+    ssize_t msg_size = current_client_info->msg_size;
+    int client_fd = current_client_info->client_fd;
+    // fprintf(stderr, "msgsize: %ld\n", msg_size);
+    // open file
+    char *filename = current_client_info->filename;
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    fprintf(stderr, "PUT: %s\n", filename);
+    // open file
+    FILE *file = fopen(path, "a"); // make sure that we dont delete the file
+    if (file == NULL) {
+        perror("PRSWF: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Set the starting write position using fseek
+    if (fseek(file, file_bytes_written, SEEK_SET) != 0) {
+        perror("PRSWF: Failed to seek to required file position");
+        fclose(file);
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    fprintf(stderr, "Starting off at byte %ld\n", file_bytes_written);
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t file_b_wrote = file_bytes_written;
+    ssize_t b_left_to_write = msg_size - file_b_wrote;
+    // int retry_count = 0;
+    // Read message in chunks, write to file
+    while (file_b_wrote < msg_size) {
+        b_left_to_write = msg_size - file_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from socket
+        ssize_t b_read = read_all_from_socket(client_fd, file_buffer, b_to_WR);
+        if (b_read < 0) {
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            // Error reading, means client has not closed yet
+            perror("PRSWF: failed to read msg\n");
+            // status = -1;
+            if (errno == EAGAIN) {
+                // try to rerun PUT
+                perror("PRSWF: EAGAIN, nothing to read\n");
+                status = 2; // uncomment when can handle this status type, if not will break
+                // continue;
+                // return status;
+            }
+            break;
+        } else if (b_read == 0) {
+            // Client closed writing on its end, cannot expect more bytes
+            // break check for sizes
+            fprintf(stderr, "b_read: %ld\n", b_read);
+            break;
+        }
+        // write to file
+        ssize_t b_wrote = fwrite(file_buffer, 1, b_read, file);
+        if (b_wrote < b_read) { // changed to b_read
+            perror("PRSWF: failed to write to file\n");
+            status = -1;
+            break;
+        }
+        file_b_wrote += b_wrote;
+        current_client_info->bytes_processed = file_b_wrote;
+    }
+    fclose(file);
+    // Handle no data in socket
+    if (status == 2) {
+        perror("PRSWF: 2 no data in socket, return later\n");
+        fprintf(stderr, "Left off at byte %ld\n", file_b_wrote);
+        return status;
+    }
+    // update client info
+    current_client_info->stage = DONE;
+
+    // check file sizes
+    // Check too much data
+    ssize_t b_read = read_all_from_socket(client_fd, file_buffer, 1);
+    fprintf(stderr, "Try to read more bytes: %ld\n", b_read);
+    if (b_read > 0) {
+        perror("PRSWF: too much data\n");
+        status = -1;
+    }
+    fprintf(stderr, "bytes written: %ld\n", file_b_wrote);
+    // Check too little data
+    if (file_b_wrote < msg_size) {
+        perror("PRSWF: too little data\n");
+        fprintf(stderr, "file_b_wrote: %ld msg_size: %ld\n", file_b_wrote, msg_size);
+        status = -1;
+    }
+    // send ERROR response if status -1
+    if (status == -1) {
+        perror("PRSWF: status -1\n");
+        send_response(ERROR, BAD_FILE_SIZE, client_fd);
+        return EXIT_FAILURE;
+    }
+    // Send OK response: additional check added to only send if all bytes written
+    if (file_b_wrote == msg_size && send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
+    return status;
+}
+
+
+int GET_request(int client_fd, char *filename) {
+    // Grab dictionary entry, shallow copy is reference
+    client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
+    // Set Verb type and stage
+    current_client_info->verb_ = GET;
+    current_client_info->stage = OTHER;
+
+    // contruct path to file
+    char path[strlen(dir) + strlen(filename) + 2];
+    snprintf(path, sizeof(path), "%s/%s", dir, filename);
+    // get file stats, size
+    struct stat file_stat;
+    if (stat(path, &file_stat) != 0) {
+        perror("GET_request: failed to get file stat.\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    ssize_t file_size = file_stat.st_size;
+    // open file
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        perror("GET_request: failed to open file\n");
+        send_response(ERROR, HTTPS_NOT_FOUND, client_fd);
+        return EXIT_FAILURE;
+    }
+    // send response
+    // RESPONSE\n
+    // [Error Message]\n
+    // [File size][Binary Data]
+    if (send_response(OK, NO_MSG, client_fd) < 0) {
+        return EXIT_FAILURE;
+    }
+    if (send_message_size(client_fd, MESSAGE_SIZE_DIGITS, file_size) < 0) {
+        return EXIT_FAILURE;
+    }
+    // update client filesize
+    current_client_info->msg_size = file_size;
+    current_client_info->stage = RDWR_LOOP;
+
+    // Write file contents to socket
+    // Stuff i need to read/write the file with
+    int status = 0;
+    char file_buffer[BLOCK_SIZE];
+    ssize_t msg_b_wrote = 0;
+    ssize_t b_left_to_write = file_size;
+    // Read message in chunks, write to file
+    while (msg_b_wrote < file_size) {
+        b_left_to_write = file_size - msg_b_wrote;
+        // read/ write in blocks
+        ssize_t b_to_WR = min(BLOCK_SIZE, b_left_to_write);
+        // fprintf(stderr, "b_to_WR: %ld\n", b_to_WR);
+        // read from from file
+        ssize_t b_read = fread(file_buffer, 1, b_to_WR, file);
+        if (b_read < b_to_WR) {
+            perror("GET_request: failed to read from file\n");
+            status = -1;
+            break;
+        }
+        // write to socket
+        ssize_t b_wrote = write_all_to_socket(client_fd, file_buffer, b_read);
+        if (b_wrote < 0) {
+            perror("GET_request: failed to write msg\n");
+            status = -1;
+            break;
+        }
+        msg_b_wrote += b_wrote;
+        // update dictionary: use += b_wrote or = msg_b_wrote better?
+        current_client_info->bytes_processed = msg_b_wrote;
+    }
+    // update dictionary
+    current_client_info->stage = DONE;
+    // did not shutdown, done ltr
+    // close file
+    fclose(file);
+    return status;
+}
+
 int PUT_request(int client_fd, char *filename) {
     // Grab dictionary entry, shallow copy is reference
     client_info *current_client_info = dictionary_get(client_dictionary, &client_fd);
