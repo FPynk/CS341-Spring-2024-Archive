@@ -227,15 +227,15 @@ void delete_remove_dictionary_entry(int client_fd) {
 }
 
 void print_client_info(int client_fd) {
-    client_info *client_fd_info = dictionary_get(client_dictionary, &client_fd);
-    if (client_fd_info) {
-        fprintf(stderr, "\nClient details: client_fd: %d verb: %d \nfilename: %s \nfilename_length: %ld msg_size: %ld \nbytes_processed: %ld stage: %d status: %d\n\n",
-        client_fd_info->client_fd, client_fd_info->verb_, client_fd_info->filename,
-        client_fd_info->filename_length, client_fd_info->msg_size,
-        client_fd_info->bytes_processed, client_fd_info->stage, client_fd_info->status);
-    } else {
-        perror("print_client_info: entry DNE");
-    }
+    // client_info *client_fd_info = dictionary_get(client_dictionary, &client_fd);
+    // if (client_fd_info) {
+    //     fprintf(stderr, "\nClient details: client_fd: %d verb: %d \nfilename: %s \nfilename_length: %ld msg_size: %ld \nbytes_processed: %ld stage: %d status: %d\n\n",
+    //     client_fd_info->client_fd, client_fd_info->verb_, client_fd_info->filename,
+    //     client_fd_info->filename_length, client_fd_info->msg_size,
+    //     client_fd_info->bytes_processed, client_fd_info->stage, client_fd_info->status);
+    // } else {
+    //     perror("print_client_info: entry DNE");
+    // }
 }
 
 // Shutdown server function WIP
