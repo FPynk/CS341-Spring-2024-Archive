@@ -751,11 +751,11 @@ int PUT_request_dynamic(int client_fd) {
             send_response(ERROR, HTTPS_BAD_REQUEST, client_fd);
             return -1;
         }
-        // fprintf(stderr, "msg_size: %ld\n", msg_size);
+        fprintf(stderr, "msg_size: %ld\n", msg_size);
         // update client info
         // sleep_nano(1); // DO NOT REMOVE, WILL BREAK CODE AND SEGFAULT IDK WHY
         fprintf(stderr, "CCI_msg_size: %p\n", &current_client_info->msg_size);
-        // fprintf(stderr, "CCI_msg_size value: %ld\n", current_client_info->msg_size);
+        fprintf(stderr, "CCI_msg_size value: %ld\n", current_client_info->msg_size);
         current_client_info->msg_size = msg_size;
         perror("segz idk why this solves a weird race condtion but it does DO NOT REMOVE\n");
         // update client stage
